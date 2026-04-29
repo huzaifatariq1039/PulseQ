@@ -126,9 +126,10 @@ def load_file(path: str, sheet: Optional[str] = None) -> pd.DataFrame:
 
 
 def fetch_existing_product_ids(session) -> Set[int]:
-    existing = session.query(PharmacyMedicine.product_id).all()
+    existing = session.query(PharmacyMedicine.product_id).filter(
+        PharmacyMedicine.is_deleted.isnot(True)
+    ).all()
     return {pid[0] for pid in existing if pid[0] is not None}
-
 
 def row_to_model(row: pd.Series, hospital_id: Optional[str] = None) -> Optional[PharmacyMedicine]:
     if _is_empty_row(row):

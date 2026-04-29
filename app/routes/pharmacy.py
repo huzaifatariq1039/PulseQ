@@ -531,7 +531,10 @@ async def add_medicine(
     db: Session = Depends(get_db),
     current: TokenData = Depends(get_current_active_user),
 ) -> Dict[str, Any]:
-    existing = db.query(PharmacyMedicine).filter(PharmacyMedicine.product_id == payload.product_id).first()
+    existing = db.query(PharmacyMedicine).filter(
+    PharmacyMedicine.product_id == payload.product_id,
+    PharmacyMedicine.is_deleted.isnot(True)   
+)
     if existing:
         raise HTTPException(status_code=400, detail="Medicine already exists")
 
