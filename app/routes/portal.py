@@ -1,5 +1,6 @@
 from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from app.routes import tokens
 from app.security import require_roles, get_current_active_user 
 from app.models import TokenData
 from app.database import get_db
@@ -162,7 +163,7 @@ async def get_doctor_tokens(
            "mrn": t.mrn,
            "department": t.department,
            "reason_for_visit": t.reason_for_visit or "",   # fix for Problem 1
-           "notes": t.consultation_notes or "",             # fix for Problem 2
+           "consultation_notes": t.consultation_notes or "",             # fix for Problem 2
            "started_at": t.started_at,
            "completed_at": t.completed_at,
            "duration": round(
@@ -206,19 +207,33 @@ async def get_completed_consultations(
     # Total completed
     total_completed = base_query.count()
     
+    # ✅ Define base filters as variables, not a query object
+    base_filters = [
+       Token.doctor_id == target_doctor_id,
+       Token.status == "completed"
+    ]
+
+    # Total completed
+    total_completed = db.query(Token).filter(*base_filters).count()
+
     # Completed today
-    completed_today = base_query.filter(
-        Token.completed_at >= today_start
-    ).count() if hasattr(Token, 'completed_at') else base_query.filter(
-        Token.updated_at >= today_start
+    completed_today = db.query(Token).filter(
+       *base_filters,
+       Token.completed_at >= today_start 
     ).count()
-    
+
     # Completed this month
-    completed_this_month = base_query.filter(
-        Token.completed_at >= month_start
-    ).count() if hasattr(Token, 'completed_at') else base_query.filter(
-        Token.updated_at >= month_start
+    completed_this_month = db.query(Token).filter(
+       *base_filters,
+       Token.updated_at >= month_start
     ).count()
+
+    # Paginated tokens
+    total = db.query(Token).filter(*base_filters).count()
+
+    tokens = db.query(Token).filter(*base_filters).order_by(
+        Token.updated_at.desc()
+    ).offset(skip).limit(size).all()
     
     # Average consultation time (in minutes)
     avg_consultation_time = 0
@@ -252,10 +267,16 @@ async def get_completed_consultations(
     ).offset(skip).limit(size).all()
     
     items = []
+    patient_ids = [t.patient_id for t in tokens]
+    doctor_ids = [t.doctor_id for t in tokens]
+
+    patients = {u.id: u for u in db.query(User).filter(User.id.in_(patient_ids)).all()}
+    doctors = {d.id: d for d in db.query(Doctor).filter(Doctor.id.in_(doctor_ids)).all()}
+
     for t in tokens:
-      patient = db.query(User).filter(User.id == t.patient_id).first()  # ✅ User instead of Patient
-      doctor_obj = db.query(Doctor).filter(Doctor.id == t.doctor_id).first()
-    
+      patient = patients.get(t.patient_id)
+      doctor_obj = doctors.get(t.doctor_id)
+
       duration = None  # ✅ inside the loop now
       if t.started_at and t.completed_at:
         duration = round((t.completed_at - t.started_at).total_seconds() / 60, 2)
@@ -270,6 +291,7 @@ async def get_completed_consultations(
         "end_time": t.completed_at,
         "duration": duration,
         "status": t.status,
+        "consultation_notes": t.consultation_notes, 
     })
 
 @router.get("/doctor/dashboard", dependencies=[Depends(require_roles("doctor", "patient", "admin"))])
