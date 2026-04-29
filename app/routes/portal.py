@@ -949,6 +949,8 @@ async def receptionist_update_token(
         "reason_for_visit", "appointment_date", "department"
     ]
     
+    if "reason" in payload and "reason_for_visit" not in payload:
+        payload["reason_for_visit"] = payload["reason"]
     updated_fields = []
     for field in updatable_fields:
         if field in payload:
