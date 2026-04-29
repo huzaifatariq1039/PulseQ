@@ -191,28 +191,28 @@ class SmartTokenService:
                     "doctor_unavailable": doctor_unavailable,
                 }
 
-            # Get currently CALLED token
+            # Get currently CALLED/IN-PROGRESS token
             called_token = db.query(Token).filter(
                 and_(
                     Token.doctor_id == doctor_id,
                     func.date(Token.appointment_date) == target_date,
-                    Token.status.in_(["called", "in_progress", "in_consultation", "in_queue"])
+                    Token.status.in_(["called", "in_progress", "in_consultation"])
                 )
-            ).order_by(Token.token_number.desc()).first()
+            ).order_by(Token.token_number.asc()).first()
 
             current_token_serving = int(called_token.token_number) if called_token else 0
             
-            # If no active token, use the last completed token number
-            # so the display shows progress instead of 0
+            # If no active token is currently being served, show the NEXT token to be served
+            # (the lowest numbered pending/waiting token), not the last completed one
             if current_token_serving == 0:
-               last_completed = db.query(Token).filter(
-                   and_(
+                next_token = db.query(Token).filter(
+                    and_(
                         Token.doctor_id == doctor_id,
                         func.date(Token.appointment_date) == target_date,
-                        Token.status.in_(["completed"])
+                        Token.status.in_(["pending", "waiting", "confirmed", "in_queue"])
                     )
-                ).order_by(Token.token_number.desc()).first()
-            current_token_serving = int(last_completed.token_number) if last_completed else 0
+                ).order_by(Token.token_number.asc()).first()
+                current_token_serving = int(next_token.token_number) if next_token else 0
 
             # Get all WAITING tokens
             waiting_tokens = db.query(Token).filter(
