@@ -734,16 +734,16 @@ async def generate_smart_token(
 
     if patient_phone:
         try:
-            send_template_message(
-            phone=patient_phone,
-            template_name="token_number",
-            params=[
-                doctor_data.get("name", "Doctor"),
-                patient_name or "Patient",
-                hospital_data.get("name", "Clinic"),
-                doctor_data.get("specialization", "General"), 
-                str(estimated_wait_time or 0)
-            ]
+            await send_template_message(
+                phone=patient_phone,
+                template_name="token_number",
+                params=[
+                    doctor_data.get("name", "Doctor"),
+                    patient_name or "Patient",
+                    hospital_data.get("name", "Clinic"),
+                    doctor_data.get("specialization", "General"), 
+                    str(estimated_wait_time or 0)
+                ]
             )
             logger.info(f"WhatsApp confirmation sent to {patient_phone} for token {token_id}")
         except Exception as e:
@@ -949,9 +949,14 @@ async def get_appointment_details(
         token.appointment_date,
         db=db 
     )
+    
+    token_data = _to_smart_token_response(token)
 
+    # ── FIX: inject consultation_notes into the response ─────────────────────
+    token_dict = token_data.model_dump()
+    token_dict["consultation_notes"] = token.consultation_notes  # already in Token model
     return {
-        "token": _to_smart_token_response(token),
+        "token": token_dict,
         "doctor": {k: v for k, v in doctor.__dict__.items() if not k.startswith('_')} if doctor else {},
         "hospital": {k: v for k, v in hospital.__dict__.items() if not k.startswith('_')} if hospital else {},
         "queue": queue
