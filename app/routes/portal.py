@@ -191,6 +191,9 @@ async def get_completed_consultations(
     """Get completed tokens for the current doctor/admin with statistics."""
     # Find clinical doctor profile if applicable
     doctor = db.query(Doctor).filter(Doctor.user_id == current.user_id).first()
+    if not doctor:
+       doctor = db.query(Doctor).filter(Doctor.id == current.user_id).first()
+
     target_doctor_id = doctor.id if doctor else current.user_id
     
     # Base query for completed tokens

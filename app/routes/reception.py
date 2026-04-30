@@ -168,9 +168,8 @@ async def reception_queue(
            "session_fee": session_fee if inferred_has_session else None,
            "total_fee": total_fee,
            "status": t.status,
-           "payment_status": t.payment_status,
-           "payment_method": t.payment_method,
            "payment": "PAID" if t.payment_status == "paid" else "UNPAID",
+           "payment_method": t.payment_method,
     })
 
     return ok(

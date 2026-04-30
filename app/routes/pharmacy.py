@@ -535,15 +535,46 @@ async def add_medicine(
     db: Session = Depends(get_db),
     current: TokenData = Depends(get_current_active_user),
 ) -> Dict[str, Any]:
+    
+    exp_dt = None
+    if payload.expiration_date:
+        try:
+            if isinstance(payload.expiration_date, datetime):
+                exp_dt = payload.expiration_date
+            else:
+                exp_iso = str(payload.expiration_date).strip()
+                exp_dt = datetime.fromisoformat(exp_iso)
+        except Exception:
+            exp_dt = None
+            logger.exception("Invalid expiration date format")
+            # Handle invalid expiration date
+
     existing = db.query(PharmacyMedicine).filter(
-    PharmacyMedicine.product_id == payload.product_id,
-    PharmacyMedicine.is_deleted.isnot(True)   
+        PharmacyMedicine.product_id == payload.product_id,
+        PharmacyMedicine.is_deleted.isnot(True)   
 )
     if existing:
-        raise HTTPException(status_code=400, detail="Medicine already exists")
-
-    exp_iso = _normalize_date_str(payload.expiration_date)
-    exp_dt = datetime.fromisoformat(exp_iso) if exp_iso else None
+        existing.name = payload.name
+        existing.generic_name = payload.generic_name
+        existing.batch_no = payload.batch_no
+        existing.quantity = payload.quantity
+        existing.selling_price = payload.selling_price
+        existing.purchase_price = payload.purchase_price
+        existing.expiration_date = payload.expiration_date
+        existing.category = payload.category
+        existing.sub_category = payload.sub_category
+        existing.type = payload.type
+        existing.distributor = payload.distributor
+        existing.stock_unit = payload.stock_unit
+        existing.updated_at = datetime.utcnow()
+        existing.is_deleted = False  # ✅ restore if soft deleted
+        db.commit()
+        db.refresh(existing)
+        return ok(data={"id": existing.id, "product_id": existing.product_id},
+            message="Medicine updated successfully"
+        )
+    #exp_iso = _normalize_date_str(payload.expiration_date)
+    #exp_dt = datetime.fromisoformat(exp_iso) if exp_iso else None
 
     new_med = PharmacyMedicine(
         id=str(uuid.uuid4()),
@@ -565,7 +596,10 @@ async def add_medicine(
     )
     db.add(new_med)
     db.commit()
-    return ok(message="Medicine added successfully")
+    db.refresh(new_med)
+    return ok(data={"id": new_med.id, "product_id": new_med.product_id},
+        message="Medicine added successfully"
+    )
 
 @router.get("/items", dependencies=[Depends(require_roles("pharmacy", "admin"))])
 async def list_items(
