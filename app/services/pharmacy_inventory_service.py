@@ -122,7 +122,9 @@ def list_medicines(
         if name_norm:
             nm = str(it.get("name") or "").strip().lower()
             gn = str(it.get("generic_name") or "").strip().lower()
-            if name_norm not in nm and name_norm not in gn:
+            # [FIX] Allow Firebase fallback to search by product_id as well
+            pid = str(it.get("product_id") or "").strip().lower()
+            if name_norm not in nm and name_norm not in gn and name_norm != pid:
                 continue
 
         exp = _to_dt(it.get("expiration_date"))
