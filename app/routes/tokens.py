@@ -731,18 +731,29 @@ async def generate_smart_token(
         {"token_id": token_id},
         db=db
     )
+    
+    def normalize_phone(phone: str) -> str:
+        if not phone:
+           return phone
+        phone = str(phone).strip().replace(" ", "").replace("-", "")
+        if phone.startswith("0") and len(phone) == 11:
+           return "+92" + phone[1:]  # 03325293408 → +923325293408
+        if not phone.startswith("+"):
+           return "+" + phone
+        return phone
 
     if patient_phone:
+        patient_phone = normalize_phone(patient_phone)
         try:
-            send_template_message(
-            phone=patient_phone,
-            template_name="token_number",
-            params=[
-                doctor_data.get("name", "Doctor"),
-                patient_name or "Patient",
-                hospital_data.get("name", "Clinic"),
-                doctor_data.get("specialization", "General"), 
-                str(estimated_wait_time or 0)
+            await send_template_message(
+                phone=patient_phone,
+                template_name="token_number",
+                params=[
+                  doctor_data.get("name", "Doctor"),
+                  patient_name or "Patient",
+                  hospital_data.get("name", "Clinic"),
+                  doctor_data.get("specialization", "General"), 
+                  str(estimated_wait_time or 0)
             ]
             )
             logger.info(f"WhatsApp confirmation sent to {patient_phone} for token {token_id}")
