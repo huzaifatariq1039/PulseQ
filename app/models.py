@@ -497,6 +497,8 @@ class SmartTokenCreate(BaseModel):
 class SmartTokenGenerateRequest(BaseModel):
     doctor_id: str
     hospital_id: str
+    patient_name: Optional[str] = None    # ✅ must exist
+    patient_phone: Optional[str] = None   # ✅ must exist
     appointment_date: Optional[datetime] = None
     department: Optional[str] = None
     patient_age: Optional[int] = None

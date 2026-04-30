@@ -432,8 +432,9 @@ async def sync_medicines_from_legacy(
 async def get_all_medicines(
     db: Session = Depends(get_db),
     hospital_id: Optional[str] = Query(None, description="Filter by hospital ID"),
+    product_id: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
-    page_size: int = Query(100, ge=1, le=500),  
+    page_size: int = Query(500, ge=1, le=1000),  
 ) -> Dict[str, Any]:
     """Get medicines list - optimized with column-level SELECT."""
     # Column-level SELECT: only fetch needed columns, skip ORM hydration
@@ -450,6 +451,9 @@ async def get_all_medicines(
     base = db.query(*cols).filter(PharmacyMedicine.is_deleted.isnot(True))
     if hospital_id:
         base = base.filter(PharmacyMedicine.hospital_id == hospital_id)
+    
+    if product_id:                     
+        base = base.filter(PharmacyMedicine.product_id == product_id)
 
     total = base.count()
     rows = base.order_by(PharmacyMedicine.name).offset((page-1)*page_size).limit(page_size).all()
