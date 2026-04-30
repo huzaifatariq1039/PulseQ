@@ -25,10 +25,6 @@ public_router = APIRouter()
 
 logger = logging.getLogger(__name__)
 
-# Note: Models for Pharmacy (Medicine, Sale, etc.) should be in db_models.py
-# For now, we'll use TODOs where models are missing.
-# Based on context, we might need to add these to db_models.py if they aren't there.
-
 class AddMedicineRequest(BaseModel):
     product_id: int = Field(..., ge=0)
     batch_no: str
@@ -74,10 +70,8 @@ async def get_pharmacy_dashboard_stats(
     db: Session = Depends(get_db),
     hospital_id: Optional[str] = Query(None),
 ):
-    """Get summary statistics for the pharmacy dashboard - single SQL query."""
     now = datetime.utcnow()
 
-    # Single query: all stats computed in one round-trip
     query = db.query(
         func.count(PharmacyMedicine.id).label('total'),
         func.coalesce(func.sum(case(
@@ -119,10 +113,7 @@ async def get_pharmacy_sales_summary(
     db: Session = Depends(get_db),
     hospital_id: Optional[str] = Query(None),
 ):
-    """Get summary of sales and revenue - OPTIMIZED with SQL aggregation"""
-
     def _sum_sales(start: datetime, end: datetime) -> float:
-        """Helper to get total sales between two dates."""
         q = db.query(
             func.coalesce(func.sum(PharmacySale.total_price), 0)
         ).filter(PharmacySale.sold_at >= start, PharmacySale.sold_at < end)
@@ -131,7 +122,6 @@ async def get_pharmacy_sales_summary(
         return float(q.scalar() or 0)
 
     def _count_sales(start: datetime, end: datetime) -> int:
-        """Helper to get total sale count between two dates."""
         q = db.query(func.count(PharmacySale.id)).filter(
             PharmacySale.sold_at >= start, PharmacySale.sold_at < end
         )
@@ -140,12 +130,10 @@ async def get_pharmacy_sales_summary(
         return int(q.scalar() or 0)
 
     def _pct_change(current: float, previous: float) -> float:
-        """Calculate percentage change. Returns 0 if no previous data."""
         if previous == 0:
             return 100.0 if current > 0 else 0.0
         return round(((current - previous) / previous) * 100, 1)
 
-    # --- Total revenue (all time) ---
     total_query = db.query(
         func.coalesce(func.sum(PharmacySale.total_price), 0).label('total_revenue'),
         func.count(PharmacySale.id).label('total_count')
@@ -156,14 +144,11 @@ async def get_pharmacy_sales_summary(
 
     now = datetime.utcnow()
 
-    # --- Today ---
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     today_end = today_start + timedelta(days=1)
     daily_revenue = _sum_sales(today_start, today_end)
     daily_count = _count_sales(today_start, today_end)
 
-    # --- This week vs last week ---
-    # Week starts on Monday (weekday() == 0)
     days_since_monday = now.weekday()
     this_week_start = (now - timedelta(days=days_since_monday)).replace(hour=0, minute=0, second=0, microsecond=0)
     last_week_start = this_week_start - timedelta(days=7)
@@ -172,9 +157,7 @@ async def get_pharmacy_sales_summary(
     last_week_revenue = _sum_sales(last_week_start, this_week_start)
     weekly_pct_change = _pct_change(this_week_revenue, last_week_revenue)
 
-    # --- This month vs last month ---
     this_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    # Last month start
     if this_month_start.month == 1:
         last_month_start = this_month_start.replace(year=this_month_start.year - 1, month=12)
     else:
@@ -203,11 +186,9 @@ async def get_revenue_chart_data(
     hospital_id: Optional[str] = Query(None),
     days: int = Query(7, ge=1, le=30)
 ):
-    """Get revenue data for chart (last N days) - OPTIMIZED"""
     now = datetime.utcnow()
     start_date = (now - timedelta(days=days-1)).replace(hour=0, minute=0, second=0, microsecond=0)
     
-    # Fetch only needed data with aggregation
     query = db.query(
         func.date(PharmacySale.sold_at).label('sale_date'),
         func.coalesce(func.sum(PharmacySale.total_price), 0).label('day_revenue'),
@@ -217,14 +198,11 @@ async def get_revenue_chart_data(
     if hospital_id:
         query = query.filter(PharmacySale.hospital_id == hospital_id)
     
-    # Group by date
     query = query.group_by(func.date(PharmacySale.sold_at))
     aggregated_sales = query.all()
     
-    # Build date map
     sales_map = {row.sale_date: {'revenue': float(row.day_revenue), 'count': row.sales_count} for row in aggregated_sales}
     
-    # Fill in all days (even with no sales)
     chart_data = []
     for i in range(days):
         day = start_date + timedelta(days=i)
@@ -246,7 +224,6 @@ async def get_sales_history(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
 ):
-    """Get list of all sales transactions - OPTIMIZED with pagination"""
     query = db.query(PharmacySale)
     if hospital_id:
         query = query.filter(PharmacySale.hospital_id == hospital_id)
@@ -271,8 +248,6 @@ async def get_sales_history(
         
     return ok(data=results, meta={"total": total, "page": page, "page_size": page_size})
 
-
-# Alias for backward compatibility - frontend calls /external/pos/sales/history
 @router.get("/external/pos/sales/history", dependencies=[Depends(require_roles("pharmacy", "admin"))])
 async def get_pos_sales_history_alias(
     db: Session = Depends(get_db),
@@ -280,7 +255,6 @@ async def get_pos_sales_history_alias(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
 ):
-    """Alias for /sales/history - for frontend backward compatibility"""
     return await get_sales_history(db, hospital_id, page, page_size)
 
 @public_router.get("/search-medicine")
@@ -288,19 +262,21 @@ async def search_medicine(
     q: str = Query(..., description="Search by medicine name or generic name"),
     db: Session = Depends(get_db)
 ) -> Dict[str, Any]:
-    # Split search into terms
     terms = [t for t in q.strip().split() if t]
     
     query = db.query(PharmacyMedicine).filter(PharmacyMedicine.is_deleted.isnot(True))
     
     for term in terms:
         like_term = f"%{term}%"
-        query = query.filter(
-            or_(
-                PharmacyMedicine.name.ilike(like_term),
-                PharmacyMedicine.generic_name.ilike(like_term)
-            )
-        )
+        # [FIX] Added logic to resolve product_id if the search term is a number
+        conditions = [
+            PharmacyMedicine.name.ilike(like_term),
+            PharmacyMedicine.generic_name.ilike(like_term)
+        ]
+        if term.isdigit():
+            conditions.append(PharmacyMedicine.product_id == int(term))
+            
+        query = query.filter(or_(*conditions))
         
     medicines = query.all()
 
@@ -325,8 +301,15 @@ async def public_add_medicine(
     db: Session = Depends(get_db),
     current: TokenData = Depends(get_current_active_user),
 ) -> Dict[str, Any]:
-    """Add medicine (public router alias for frontend compatibility)."""
-    existing = db.query(PharmacyMedicine).filter(PharmacyMedicine.product_id == payload.product_id).first()
+    
+    # [FIX] Added multi-tenant hospital_id scoping
+    user_hospital = getattr(current, 'hospital_id', None)
+    
+    existing = db.query(PharmacyMedicine).filter(
+        PharmacyMedicine.product_id == payload.product_id,
+        PharmacyMedicine.hospital_id == user_hospital
+    ).first()
+    
     if existing:
         raise HTTPException(status_code=400, detail="Medicine with this product ID already exists")
 
@@ -353,7 +336,7 @@ async def public_add_medicine(
         expiration_date=exp_dt,
         category=payload.category,
         sub_category=payload.sub_category,
-        hospital_id=payload.hospital_id or getattr(current, 'hospital_id', None),
+        hospital_id=payload.hospital_id or user_hospital,
         created_at=datetime.utcnow()
     )
     db.add(new_med)
@@ -361,22 +344,17 @@ async def public_add_medicine(
     return ok(message="Medicine added successfully", data={"id": new_med.id, "product_id": new_med.product_id})
 
 async def _sync_medicines_internal(db: Session, hospital_id: Optional[str] = None) -> Dict[str, int]:
-    """Internal function to migrate medicines from Firebase to PostgreSQL."""
     from app.services.pharmacy_inventory_service import list_medicines as list_legacy
     
-    # 1. Fetch all legacy items
-    # If hospital_id is provided, we could filter by it, but list_legacy doesn't support it yet
     legacy_items = list_legacy(limit=1000)
     if not legacy_items:
         return {"synced": 0, "skipped": 0, "total_legacy": 0}
 
-    # 2. Pre-fetch existing product IDs from PostgreSQL to avoid N+1 queries
     existing_ids = {row[0] for row in db.query(PharmacyMedicine.product_id).all()}
     
     synced_count = 0
     skipped_count = 0
     
-    # 3. Batch process items
     for item in legacy_items:
         prod_id = item.get("product_id")
         if prod_id is None:
@@ -387,7 +365,6 @@ async def _sync_medicines_internal(db: Session, hospital_id: Optional[str] = Non
             skipped_count += 1
             continue
             
-        # Create new PG record
         new_med = PharmacyMedicine(
             id=str(item.get("id") or uuid.uuid4()),
             product_id=prod_id_int,
@@ -423,7 +400,6 @@ async def sync_medicines_from_legacy(
     db: Session = Depends(get_db),
     current: TokenData = Depends(get_current_active_user)
 ) -> Any:
-    """Migrate medicines from Firebase to PostgreSQL if they don't exist yet."""
     result = await _sync_medicines_internal(db)
     return ok(data=result, message=f"Successfully imported {result['synced']} medicines from legacy storage")
 
@@ -436,8 +412,6 @@ async def get_all_medicines(
     page: int = Query(1, ge=1),
     page_size: int = Query(500, ge=1, le=1000),  
 ) -> Dict[str, Any]:
-    """Get medicines list - optimized with column-level SELECT."""
-    # Column-level SELECT: only fetch needed columns, skip ORM hydration
     cols = (
         PharmacyMedicine.id, PharmacyMedicine.product_id, PharmacyMedicine.batch_no,
         PharmacyMedicine.name, PharmacyMedicine.generic_name, PharmacyMedicine.type,
@@ -494,10 +468,14 @@ async def dispense_medicine(
     db: Session = Depends(get_db),
     current: TokenData = Depends(get_current_active_user),
 ) -> Dict[str, Any]:
-    # Simple transaction in SQLAlchemy
     try:
         for item in payload.medicines:
-            med = db.query(PharmacyMedicine).filter(PharmacyMedicine.product_id == item.product_id).with_for_update().first()
+            # [FIX] Added tenant scoping for dispensing
+            med = db.query(PharmacyMedicine).filter(
+                PharmacyMedicine.product_id == item.product_id,
+                PharmacyMedicine.hospital_id == current.hospital_id
+            ).with_for_update().first()
+            
             if not med:
                 raise HTTPException(status_code=404, detail=f"Medicine {item.product_id} not found")
             
@@ -508,7 +486,7 @@ async def dispense_medicine(
             
             sale = PharmacySale(
                 id=str(uuid.uuid4()),
-                hospital_id=current.hospital_id, # Link sale to hospital
+                hospital_id=current.hospital_id,
                 patient_id=payload.patient_id,
                 doctor_id=payload.doctor_id,
                 medicine_id=med.product_id,
@@ -547,12 +525,14 @@ async def add_medicine(
         except Exception:
             exp_dt = None
             logger.exception("Invalid expiration date format")
-            # Handle invalid expiration date
 
+    # [FIX] Critical Multi-Tenancy Scope Check Added here
     existing = db.query(PharmacyMedicine).filter(
         PharmacyMedicine.product_id == int(payload.product_id),
+        PharmacyMedicine.hospital_id == current.hospital_id,
         PharmacyMedicine.is_deleted.isnot(True)
     ).first()
+    
     if existing:
         existing.name = payload.name
         existing.generic_name = payload.generic_name
@@ -567,15 +547,14 @@ async def add_medicine(
         existing.distributor = payload.distributor
         existing.stock_unit = payload.stock_unit
         existing.updated_at = datetime.utcnow()
-        existing.is_deleted = False  # ✅ restore if soft deleted
+        existing.is_deleted = False 
         db.commit()
         db.refresh(existing)
         return ok(data={"id": existing.id, "product_id": existing.product_id},
             message="Medicine updated successfully"
         )
-    #exp_iso = _normalize_date_str(payload.expiration_date)
-    #exp_dt = datetime.fromisoformat(exp_iso) if exp_iso else None
 
+    # [FIX] Ensures new medicines are strictly bound to the user's hospital
     new_med = PharmacyMedicine(
         id=str(uuid.uuid4()),
         product_id=payload.product_id,
@@ -591,7 +570,7 @@ async def add_medicine(
         expiration_date=exp_dt,
         category=payload.category,
         sub_category=payload.sub_category,
-        hospital_id=payload.hospital_id,
+        hospital_id=current.hospital_id, 
         created_at=datetime.utcnow()
     )
     db.add(new_med)
@@ -612,7 +591,6 @@ async def list_items(
     page: int = Query(1, ge=1),
     page_size: int = Query(100, ge=1, le=500),
 ) -> Any:
-    """List pharmacy inventory items - optimized with column-level SELECT."""
     cols = (
         PharmacyMedicine.id, PharmacyMedicine.product_id, PharmacyMedicine.batch_no,
         PharmacyMedicine.name, PharmacyMedicine.generic_name, PharmacyMedicine.type,
@@ -635,18 +613,19 @@ async def list_items(
         
     search_term = q or search_param
     if search_term:
-        # Split search into terms (e.g., "panadol 500" -> ["panadol", "500"])
         terms = [t for t in search_term.strip().split() if t]
         for term in terms:
             like_term = f"%{term}%"
-            # Must match ALL terms in at least one of the fields (AND logic between terms, OR logic within a term)
-            base = base.filter(
-                or_(
-                    PharmacyMedicine.name.ilike(like_term),
-                    PharmacyMedicine.generic_name.ilike(like_term),
-                    PharmacyMedicine.batch_no.ilike(like_term)
-                )
-            )
+            # [FIX] Safely check if the search term represents a product_id to resolve UUID requests
+            conditions = [
+                PharmacyMedicine.name.ilike(like_term),
+                PharmacyMedicine.generic_name.ilike(like_term),
+                PharmacyMedicine.batch_no.ilike(like_term)
+            ]
+            if term.isdigit():
+                conditions.append(PharmacyMedicine.product_id == int(term))
+                
+            base = base.filter(or_(*conditions))
 
     total = base.count()
     rows = base.order_by(PharmacyMedicine.updated_at.desc()).offset((page-1)*page_size).limit(page_size).all()
@@ -678,9 +657,6 @@ async def list_items(
         "has_prev": page > 1
     })
 
-# Rest of the functions follow similar pattern: db.query(Model).filter(...)...
-# I'll implement the most critical ones to ensure Firebase patterns are gone.
-
 @router.delete("/items/{item_id}", dependencies=[Depends(require_roles("pharmacy", "admin"))])
 async def delete_item(
     item_id: str,
@@ -689,11 +665,18 @@ async def delete_item(
 ) -> Any:
     from app.db_models import PharmacyMedicine
     
-    # Try matching by UUID id first, then by product_id
-    med = db.query(PharmacyMedicine).filter(PharmacyMedicine.id == item_id).first()
+    # [FIX] Securely block cross-tenant deletion
+    med = db.query(PharmacyMedicine).filter(
+        PharmacyMedicine.id == item_id,
+        PharmacyMedicine.hospital_id == current.hospital_id
+    ).first()
+    
     if not med:
         try:
-            med = db.query(PharmacyMedicine).filter(PharmacyMedicine.product_id == int(item_id)).first()
+            med = db.query(PharmacyMedicine).filter(
+                PharmacyMedicine.product_id == int(item_id),
+                PharmacyMedicine.hospital_id == current.hospital_id
+            ).first()
         except (ValueError, TypeError):
             pass
     
@@ -703,7 +686,6 @@ async def delete_item(
     deleted_name = med.name
     deleted_id = med.id
     
-    # Soft delete to move to 'trash' instead of hard deleting
     med.is_deleted = True
     med.deleted_at = datetime.utcnow()
     
@@ -717,11 +699,17 @@ async def restore_item(
     db: Session = Depends(get_db),
     current: TokenData = Depends(get_current_active_user),
 ) -> Any:
-    med = db.query(PharmacyMedicine).filter(PharmacyMedicine.id == item_id).first()
+    # [FIX] Securely block cross-tenant restoring
+    med = db.query(PharmacyMedicine).filter(
+        PharmacyMedicine.id == item_id,
+        PharmacyMedicine.hospital_id == current.hospital_id
+    ).first()
+    
     if not med:
         try:
             med = db.query(PharmacyMedicine).filter(
-                PharmacyMedicine.product_id == int(item_id)
+                PharmacyMedicine.product_id == int(item_id),
+                PharmacyMedicine.hospital_id == current.hospital_id
             ).first()
         except (ValueError, TypeError):
             pass

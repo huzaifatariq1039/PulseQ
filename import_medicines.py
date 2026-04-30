@@ -79,7 +79,6 @@ def _to_dt(v: Any) -> Optional[datetime]:
         dt = pd.to_datetime(v, errors="coerce")
         if pd.isna(dt):
             return None
-        # ensure python datetime
         return dt.to_pydatetime()
     except Exception:
         return None
@@ -99,24 +98,19 @@ def _to_str(v: Any) -> Optional[str]:
 
 
 def load_file(path: str, sheet: Optional[str] = None) -> pd.DataFrame:
-    # Check extension
     is_csv = path.lower().endswith(".csv")
     
     if is_csv:
-        # For CSV, we try common delimiters
         try:
             df = pd.read_csv(path, skiprows=1)
         except Exception:
             df = pd.read_csv(path, skiprows=1, sep=";")
     else:
-        # If sheet is None, default to the first sheet (0)
         sheet_to_read = sheet if sheet is not None else 0
         df = pd.read_excel(path, sheet_name=sheet_to_read, skiprows=1)
     
-    # Normalize column names (trim spaces and handle case)
     df.columns = [str(c).strip() for c in df.columns]
 
-    # Map the columns from the file to the internal model
     missing = [col for col in EXCEL_COLUMNS.values() if col not in df.columns]
     if missing:
         print(f"DEBUG: Found columns in file: {list(df.columns)}")
@@ -187,14 +181,14 @@ def import_medicines(file_path: str, db_url: str, hospital_id: Optional[str] = N
 
             seen_in_file.add(pid)
 
-            # ✅ Check if exists in DB
+            # [FIX] Added critical hospital_id scope to backend CLI script
             existing_med = session.query(PharmacyMedicine).filter(
                 PharmacyMedicine.product_id == pid,
+                PharmacyMedicine.hospital_id == hospital_id,
                 PharmacyMedicine.is_deleted.isnot(True)
             ).first()
 
             if existing_med:
-                # ✅ UPDATE existing medicine
                 existing_med.batch_no = med.batch_no
                 existing_med.name = med.name
                 existing_med.generic_name = med.generic_name
@@ -211,7 +205,6 @@ def import_medicines(file_path: str, db_url: str, hospital_id: Optional[str] = N
                 updated += 1
                 print(f"Updated product_id: {pid}")
             else:
-                # ✅ INSERT new medicine
                 session.add(med)
                 imported += 1
                 print(f"Imported product_id: {pid}")
@@ -245,7 +238,6 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    # Handle postgres:// vs postgresql://
     db_url = args.db_url
     if db_url.startswith("postgres://"):
         db_url = db_url.replace("postgres://", "postgresql://", 1)
