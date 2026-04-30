@@ -70,13 +70,10 @@ async def list_portal_notifications(
     unread_only: bool = Query(True),
     limit: Optional[int] = Query(50, ge=1, le=200),
 ) -> Dict[str, Any]:
-    # Assuming there's a Notification model in db_models, but let's check if it exists
-    # If not, we'll need to add it or use a TODO. For now, assuming it exists based on previous logic.
-    from app.db_models import ActivityLog as Notification  # Using ActivityLog as a fallback if Notification is missing
+    from app.db_models import ActivityLog as Notification  
     
     query = db.query(Notification).filter(Notification.user_id == current.user_id)
     if unread_only:
-        # Assuming ActivityLog or Notification has is_read
         if hasattr(Notification, 'is_read'):
             query = query.filter(Notification.is_read == False)
 
@@ -92,7 +89,6 @@ async def mark_notification_read(
     db: Session = Depends(get_db),
     current: TokenData = Depends(get_current_active_user),
 ) -> Dict[str, Any]:
-    # Placeholder for notification model
     from app.db_models import ActivityLog as Notification
     
     notif = db.query(Notification).filter(Notification.id == notification_id).first()
@@ -162,8 +158,8 @@ async def get_doctor_tokens(
            "status": str(t.status).lower(),
            "mrn": t.mrn,
            "department": t.department,
-           "reason_for_visit": t.reason_for_visit or "",   # fix for Problem 1
-           "consultation_notes": t.consultation_notes or "",             # fix for Problem 2
+           "reason_for_visit": t.reason_for_visit or "",   
+           "consultation_notes": t.consultation_notes or "",             
            "started_at": t.started_at,
            "completed_at": t.completed_at,
            "duration": round(
@@ -189,64 +185,40 @@ async def get_completed_consultations(
     page_size: Optional[int] = Query(20, ge=1, le=500),
 ):
     """Get completed tokens for the current doctor/admin with statistics."""
-    # Find clinical doctor profile if applicable
-    doctor = db.query(Doctor).filter(Doctor.user_id == current.user_id).first()
-    if not doctor:
-       doctor = db.query(Doctor).filter(Doctor.id == current.user_id).first()
-
-    target_doctor_id = doctor.id if doctor else current.user_id
     
-    # Base query for completed tokens
-    base_query = db.query(Token).filter(
-        Token.doctor_id == target_doctor_id,
-        Token.status == "completed"
-    )
+    # ✅ FIX: Identify if the user is an admin
+    is_admin = getattr(current, "role", "") == "admin"
+    
+    base_filters = [Token.status == "completed"]
+
+    if not is_admin:
+        # If it's a doctor, restrict the query to only THEIR completed tokens
+        doctor = db.query(Doctor).filter(Doctor.user_id == current.user_id).first()
+        if not doctor:
+            doctor = db.query(Doctor).filter(Doctor.id == current.user_id).first()
+        
+        target_doctor_id = doctor.id if doctor else current.user_id
+        base_filters.append(Token.doctor_id == target_doctor_id)
+    else:
+        # If it's an Admin, scope it to their hospital (showing ALL doctors' tokens)
+        if getattr(current, "hospital_id", None):
+            base_filters.append(Token.hospital_id == current.hospital_id)
+
+    # Base query for completed tokens using our dynamically scoped filters
+    base_query = db.query(Token).filter(*base_filters)
     
     # Calculate statistics
     now = datetime.utcnow()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     
-    # Total completed
     total_completed = base_query.count()
-    
-    # ✅ Define base filters as variables, not a query object
-    base_filters = [
-       Token.doctor_id == target_doctor_id,
-       Token.status == "completed"
-    ]
-
-    # Total completed
-    total_completed = db.query(Token).filter(*base_filters).count()
-
-    # Completed today
-    completed_today = db.query(Token).filter(
-       *base_filters,
-       Token.completed_at >= today_start 
-    ).count()
-
-    # Completed this month
-    completed_this_month = db.query(Token).filter(
-       *base_filters,
-       Token.updated_at >= month_start
-    ).count()
-
-    # Pagination
-    size = _parse_positive_int(page_size, 20)
-    skip = (page - 1) * size
-    total = db.query(Token).filter(*base_filters).count()
-
-    # ✅ Fresh query — no stale filters
-    tokens = db.query(Token).filter(
-        *base_filters
-    ).order_by(
-        Token.updated_at.desc()
-    ).offset(skip).limit(size).all()
+    completed_today = base_query.filter(Token.completed_at >= today_start).count()
+    completed_this_month = base_query.filter(Token.updated_at >= month_start).count()
     
     # Average consultation time (in minutes)
     avg_consultation_time = 0
     if hasattr(Token, 'started_at') and hasattr(Token, 'completed_at'):
-        # Get tokens with both started_at and completed_at
         tokens_with_times = base_query.filter(
             Token.started_at.isnot(None),
             Token.completed_at.isnot(None)
@@ -256,17 +228,14 @@ async def get_completed_consultations(
             total_minutes = 0
             count = 0
             for token in tokens_with_times:
-                if token.started_at and token.completed_at:
-                    duration = (token.completed_at - token.started_at).total_seconds() / 60
-                    if duration > 0:  # Only count positive durations
-                        total_minutes += duration
-                        count += 1
-            
+                duration = (token.completed_at - token.started_at).total_seconds() / 60
+                if duration > 0:
+                    total_minutes += duration
+                    count += 1
             if count > 0:
                 avg_consultation_time = round(total_minutes / count, 2)
     
     # Get paginated tokens
-    total = base_query.count()
     size = _parse_positive_int(page_size, 20)
     skip = (page - 1) * size
     
@@ -285,16 +254,16 @@ async def get_completed_consultations(
       patient = patients.get(t.patient_id)
       doctor_obj = doctors.get(t.doctor_id)
 
-      duration = None  # ✅ inside the loop now
+      duration = None 
       if t.started_at and t.completed_at:
         duration = round((t.completed_at - t.started_at).total_seconds() / 60, 2)
     
-      items.append({  # ✅ inside the loop now
+      items.append({ 
         "token_number": t.token_number,
-        "mrn": patient.mrn if patient else None,
-        "patient_name": patient.name if patient else None,
-        "doctor_name": doctor_obj.name if doctor_obj else None,
-        "department": doctor_obj.specialization if doctor_obj else None,
+        "mrn": getattr(patient, 'mrn', None) if patient else getattr(t, 'mrn', None),
+        "patient_name": patient.name if patient else t.patient_name,
+        "doctor_name": doctor_obj.name if doctor_obj else t.doctor_name,
+        "department": doctor_obj.specialization if doctor_obj else getattr(t, 'department', None),
         "start_time": t.started_at,
         "end_time": t.completed_at,
         "duration": duration,
@@ -307,7 +276,7 @@ async def get_completed_consultations(
         meta={
             "page": page,
             "page_size": size,
-            "total": total,
+            "total": total_completed,
             "total_completed": total_completed,
             "completed_today": completed_today,
             "completed_this_month": completed_this_month,

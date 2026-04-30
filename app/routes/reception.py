@@ -104,10 +104,11 @@ async def reception_queue(
     """Receptionist Queue View from PostgreSQL"""
     today = datetime.utcnow().date()
     query = db.query(Token).filter(
-    Token.hospital_id == hospital_id, 
-    func.date(Token.appointment_date) == today,
-    Token.status.in_(["pending", "in_progress", "waiting"])  # 👈 exclude completed/deleted
-)
+        Token.hospital_id == hospital_id, 
+        func.date(Token.appointment_date) == today,
+        # ✅ FIX: Explicitly added "skipped" and "TokenStatus.SKIPPED" so they remain on the receptionist board
+        Token.status.in_(["pending", "in_progress", "waiting", "skipped", "TokenStatus.SKIPPED"])  
+    )
     if doctor_id:
         query = query.filter(Token.doctor_id == doctor_id)
 
@@ -118,7 +119,7 @@ async def reception_queue(
     for t in tokens:
         doctor = db.query(Doctor).filter(Doctor.id == t.doctor_id).first()
 
-    #  Read age from Token first (as int)
+        #  Read age from Token first (as int)
         age = None
         if t.patient_age is not None:
             try:
@@ -126,10 +127,10 @@ async def reception_queue(
             except Exception:
                 age = None
 
-    # Read gender from Token first
+        # Read gender from Token first
         gender = t.patient_gender if t.patient_gender else None
 
-    # Fallback to User table only if token has no age or gender
+        # Fallback to User table only if token has no age or gender
         if age is None or gender is None:
             user = db.query(User).filter(User.id == t.patient_id).first()
             if user:
@@ -158,8 +159,8 @@ async def reception_queue(
            "token_number": t.display_code or str(t.token_number),
            "mrn": t.mrn,
            "patient_name": t.patient_name,
-           "patient_age": age,            # ✅ int or None
-           "patient_gender": gender,      # ✅ from token or user
+           "patient_age": age,             # ✅ int or None
+           "patient_gender": gender,       # ✅ from token or user
            "patient_phone": t.patient_phone,
            "doctor_name": t.doctor_name,
            "department": department,
