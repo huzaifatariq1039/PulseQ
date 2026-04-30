@@ -268,7 +268,7 @@ async def search_medicine(
     
     for term in terms:
         like_term = f"%{term}%"
-        # [FIX] Added logic to resolve product_id if the search term is a number
+        # [FIX] Numeric UUID resolution
         conditions = [
             PharmacyMedicine.name.ilike(like_term),
             PharmacyMedicine.generic_name.ilike(like_term)
@@ -302,16 +302,13 @@ async def public_add_medicine(
     current: TokenData = Depends(get_current_active_user),
 ) -> Dict[str, Any]:
     
-    # [FIX] Added multi-tenant hospital_id scoping
     user_hospital = getattr(current, 'hospital_id', None)
     
+    # [FIX] Multi-tenant scoping and Native Upsert (ignores is_deleted to find ghosts)
     existing = db.query(PharmacyMedicine).filter(
         PharmacyMedicine.product_id == payload.product_id,
         PharmacyMedicine.hospital_id == user_hospital
     ).first()
-    
-    if existing:
-        raise HTTPException(status_code=400, detail="Medicine with this product ID already exists")
 
     exp_iso = _normalize_date_str(payload.expiration_date)
     exp_dt = None
@@ -320,6 +317,27 @@ async def public_add_medicine(
             exp_dt = datetime.fromisoformat(exp_iso)
         except (ValueError, TypeError):
             pass
+
+    if existing:
+        existing.batch_no = payload.batch_no
+        existing.name = payload.name
+        existing.generic_name = payload.generic_name
+        existing.type = payload.type
+        existing.distributor = payload.distributor
+        existing.purchase_price = payload.purchase_price
+        existing.selling_price = payload.selling_price
+        existing.stock_unit = payload.stock_unit
+        existing.quantity = payload.quantity
+        existing.expiration_date = exp_dt
+        existing.category = payload.category
+        existing.sub_category = payload.sub_category
+        
+        existing.is_deleted = False # Instantly revive it from the trash
+        existing.updated_at = datetime.utcnow()
+        
+        db.commit()
+        db.refresh(existing)
+        return ok(message="Medicine updated successfully", data={"id": existing.id, "product_id": existing.product_id})
 
     new_med = PharmacyMedicine(
         id=str(uuid.uuid4()),
@@ -336,7 +354,7 @@ async def public_add_medicine(
         expiration_date=exp_dt,
         category=payload.category,
         sub_category=payload.sub_category,
-        hospital_id=payload.hospital_id or user_hospital,
+        hospital_id=user_hospital,
         created_at=datetime.utcnow()
     )
     db.add(new_med)
@@ -470,7 +488,6 @@ async def dispense_medicine(
 ) -> Dict[str, Any]:
     try:
         for item in payload.medicines:
-            # [FIX] Added tenant scoping for dispensing
             med = db.query(PharmacyMedicine).filter(
                 PharmacyMedicine.product_id == item.product_id,
                 PharmacyMedicine.hospital_id == current.hospital_id
@@ -526,11 +543,10 @@ async def add_medicine(
             exp_dt = None
             logger.exception("Invalid expiration date format")
 
-    # [FIX] Critical Multi-Tenancy Scope Check Added here
+    # [FIX] Applied the same Soft-Delete ghost fix here as in the public router
     existing = db.query(PharmacyMedicine).filter(
         PharmacyMedicine.product_id == int(payload.product_id),
-        PharmacyMedicine.hospital_id == current.hospital_id,
-        PharmacyMedicine.is_deleted.isnot(True)
+        PharmacyMedicine.hospital_id == current.hospital_id
     ).first()
     
     if existing:
@@ -547,14 +563,13 @@ async def add_medicine(
         existing.distributor = payload.distributor
         existing.stock_unit = payload.stock_unit
         existing.updated_at = datetime.utcnow()
-        existing.is_deleted = False 
+        existing.is_deleted = False # Auto-revive
         db.commit()
         db.refresh(existing)
         return ok(data={"id": existing.id, "product_id": existing.product_id},
             message="Medicine updated successfully"
         )
 
-    # [FIX] Ensures new medicines are strictly bound to the user's hospital
     new_med = PharmacyMedicine(
         id=str(uuid.uuid4()),
         product_id=payload.product_id,
@@ -616,7 +631,6 @@ async def list_items(
         terms = [t for t in search_term.strip().split() if t]
         for term in terms:
             like_term = f"%{term}%"
-            # [FIX] Safely check if the search term represents a product_id to resolve UUID requests
             conditions = [
                 PharmacyMedicine.name.ilike(like_term),
                 PharmacyMedicine.generic_name.ilike(like_term),
@@ -665,7 +679,6 @@ async def delete_item(
 ) -> Any:
     from app.db_models import PharmacyMedicine
     
-    # [FIX] Securely block cross-tenant deletion
     med = db.query(PharmacyMedicine).filter(
         PharmacyMedicine.id == item_id,
         PharmacyMedicine.hospital_id == current.hospital_id
@@ -699,7 +712,6 @@ async def restore_item(
     db: Session = Depends(get_db),
     current: TokenData = Depends(get_current_active_user),
 ) -> Any:
-    # [FIX] Securely block cross-tenant restoring
     med = db.query(PharmacyMedicine).filter(
         PharmacyMedicine.id == item_id,
         PharmacyMedicine.hospital_id == current.hospital_id
