@@ -817,6 +817,7 @@ class RatingCreate(BaseModel):
     token_id: str
     rating: int = Field(..., ge=1, le=5)
     review: Optional[str] = None
+    feedback: Optional[str] = None
 
 class RatingResponse(BaseModel):
     id: str
