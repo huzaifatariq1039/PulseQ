@@ -377,17 +377,17 @@ async def get_my_active_token_details(
     if not token:
         raise HTTPException(status_code=404, detail="No active token found")
 
-    if not token.patient_name or not token.patient_phone:
-        user = db.query(User).filter(User.id == current_user.user_id).first()
-        if user:
-            if not token.patient_name:
-                token.patient_name = user.name
-            if not token.patient_phone:
-                token.patient_phone = user.phone
-            try:
-                db.commit()
-            except Exception:
-                db.rollback()
+    #if not token.patient_name or not token.patient_phone:
+    #    user = db.query(User).filter(User.id == current_user.user_id).first()
+    #    if user:
+    #        if not token.patient_name:
+    #            token.patient_name = user.name
+    #        if not token.patient_phone:
+    #            token.patient_phone = user.phone
+    #        try:
+    #            db.commit()
+    #        except Exception:
+    #            db.rollback()
 
     doctor = db.query(Doctor).filter(Doctor.id == token.doctor_id).first()
     hospital = db.query(Hospital).filter(Hospital.id == token.hospital_id).first()
@@ -676,8 +676,8 @@ async def generate_smart_token(
     # Token Creation & Saving 
     # ---------------------------------------------------------
     user = db.query(User).filter(User.id == current_user.user_id).first()
-    patient_name = user.name if user else None
-    patient_phone = user.phone if user else None
+    patient_name = payload.patient_name or (user.name if user else None)
+    patient_phone = payload.patient_phone or (user.phone if user else None)
     
     status_val = TokenStatus.PENDING.value if hasattr(TokenStatus.PENDING, 'value') else "pending"
     payment_val = PaymentStatus.PENDING.value if hasattr(PaymentStatus.PENDING, 'value') else "pending"
