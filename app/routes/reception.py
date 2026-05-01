@@ -455,7 +455,7 @@ async def receptionist_create_walkin_token(
 
     if phone:
         normalized_phone = normalize_phone(phone)
-        
+        logger.info(f"DEBUG: Raw phone={phone}, Normalized={normalized_phone}")  # ✅ add
         # 1. Send the initial Token template
         try:
             from app.services.whatsapp_service import send_template_message
