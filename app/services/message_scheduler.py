@@ -6,6 +6,9 @@ from app.services.whatsapp_service import send_template_message
 from app.database import get_db
 from app.config import COLLECTIONS
 
+# ✅ FIX: Strong references to background tasks prevent garbage collection
+_background_tasks: set = set()
+
 
 def _to_dt(v: Any) -> Optional[datetime]:
     try:
@@ -21,7 +24,12 @@ def _to_dt(v: Any) -> Optional[datetime]:
         return None
 
 
-async def schedule_at(run_at: datetime, template_name: str, token_context: Dict[str, Any], params: List[str]) -> None:
+async def schedule_at(
+    run_at: datetime,
+    template_name: str,
+    token_context: Dict[str, Any],
+    params: List[str],
+) -> None:
     now = datetime.now(timezone.utc)
     run_at_utc = run_at
     try:
@@ -45,10 +53,10 @@ async def schedule_at(run_at: datetime, template_name: str, token_context: Dict[
         except Exception:
             return
 
-    try:
-        asyncio.create_task(_runner())
-    except Exception:
-        await _runner()
+    # ✅ FIX: Hold a strong reference; discard automatically on completion
+    task = asyncio.create_task(_runner())
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
 
 async def _build_token_context(token: Dict[str, Any]) -> Dict[str, Any]:
@@ -74,7 +82,12 @@ async def _build_token_context(token: Dict[str, Any]) -> Dict[str, Any]:
                 if getattr(dsnap, "exists", False):
                     d = dsnap.to_dict() or {}
                     ctx["doctor_name"] = d.get("name")
-                    ctx["department"] = ctx.get("department") or d.get("specialization") or d.get("subcategory") or d.get("department")
+                    ctx["department"] = (
+                        ctx.get("department")
+                        or d.get("specialization")
+                        or d.get("subcategory")
+                        or d.get("department")
+                    )
             except Exception:
                 pass
 
@@ -93,7 +106,6 @@ async def _build_token_context(token: Dict[str, Any]) -> Dict[str, Any]:
     return ctx
 
 
-# ✅ FIX: is_webhook_trigger flag and true dynamic wait minutes
 async def schedule_messages(token: Dict[str, Any], is_webhook_trigger: bool = False) -> None:
     ctx = await _build_token_context(token)
 
@@ -110,22 +122,21 @@ async def schedule_messages(token: Dict[str, Any], is_webhook_trigger: bool = Fa
         pass
 
     now = datetime.now(timezone.utc)
-    
-    # Extract estimated wait time safely
+
     try:
         est_wait_time = float(ctx.get("estimated_wait_time") or 0)
     except (ValueError, TypeError):
         est_wait_time = 0.0
 
-    # Calculate TRUE expected appointment time
-    expected_appt = appt + timedelta(minutes=est_wait_time)
+    expected_appt     = appt + timedelta(minutes=est_wait_time)
     true_wait_minutes = (expected_appt - now).total_seconds() / 60.0
 
     phone = str(ctx.get("patient_phone") or "").strip()
     if not phone:
         return
 
-    # Only send initial confirmation if it's NOT coming from the Webhook YES reply (Stops Duplicate Bug)
+    # ✅ Only send the initial booking confirmation on a fresh booking,
+    #    never when triggered by a webhook YES reply (prevents duplicate sends)
     if not is_webhook_trigger:
         confirm_params = [
             str(ctx.get("doctor_name") or "Doctor"),
@@ -136,63 +147,77 @@ async def schedule_messages(token: Dict[str, Any], is_webhook_trigger: bool = Fa
         ]
         await send_template_message(phone, "token_number", confirm_params)
 
-    # Walk-In Protection
+    # Walk-in protection: skip scheduling if appointment is imminent
     if true_wait_minutes < 5:
         return
 
-    # CASE 1: LONG
+    patient_name  = str(ctx.get("patient_name") or "Patient")
+    token_number  = str(ctx.get("token_number") or "")
+    hospital_name = str(ctx.get("hospital_name") or "Clinic")
+
+    # ── CASE 1: LONG wait > 60 min — 3 messages ──────────────────────────────
     if true_wait_minutes > 60:
         await schedule_at(
             expected_appt - timedelta(minutes=60),
             "queue_update_alert",
             ctx,
-            [str(ctx.get("patient_name") or "Patient"), "1", str(int(true_wait_minutes - 60)), str(ctx.get("hospital_name") or "Clinic"), str(ctx.get("token_number") or "")]
+            [
+                patient_name,
+                "1",
+                str(int(true_wait_minutes - 60)),   # plain number — no "mins" suffix
+                hospital_name,
+                token_number,
+            ],
         )
         await schedule_at(
             expected_appt - timedelta(minutes=30),
             "final_alert",
             ctx,
-            [str(ctx.get("patient_name") or "Patient"), str(ctx.get("token_number") or "")]
+            [patient_name, token_number],
         )
         await schedule_at(
             expected_appt - timedelta(minutes=10),
             "patient_call_alert",
             ctx,
-            [str(ctx.get("patient_name") or "Patient")]
+            [patient_name],
         )
 
-    # CASE 2: MEDIUM
+    # ── CASE 2: MEDIUM wait 30–60 min — 2 messages ───────────────────────────
     elif 30 < true_wait_minutes <= 60:
         await schedule_at(
             expected_appt - timedelta(minutes=30),
             "final_alert",
             ctx,
-            [str(ctx.get("patient_name") or "Patient"), str(ctx.get("token_number") or "")]
+            [patient_name, token_number],
         )
         await schedule_at(
             expected_appt - timedelta(minutes=10),
             "patient_call_alert",
             ctx,
-            [str(ctx.get("patient_name") or "Patient")]
+            [patient_name],
         )
 
-    # CASE 3: SHORT
+    # ── CASE 3: SHORT wait 5–30 min — 2 messages ─────────────────────────────
     else:
         await schedule_at(
             now + timedelta(minutes=2),
             "final_alert",
             ctx,
-            [str(ctx.get("patient_name") or "Patient"), str(ctx.get("token_number") or "")]
+            [patient_name, token_number],
         )
         await schedule_at(
             expected_appt - timedelta(minutes=2),
             "patient_call_alert",
             ctx,
-            [str(ctx.get("patient_name") or "Patient")]
+            [patient_name],
         )
 
 
-async def schedule_confirmation_checks(token_id: str, first_delay_minutes: int = 15, second_delay_minutes: int = 15) -> None:
+async def schedule_confirmation_checks(
+    token_id: str,
+    first_delay_minutes: int = 15,
+    second_delay_minutes: int = 15,
+) -> None:
     async def _check_and_remind():
         await asyncio.sleep(first_delay_minutes * 60)
 
@@ -205,20 +230,19 @@ async def schedule_confirmation_checks(token_id: str, first_delay_minutes: int =
                 return
 
             if token.status == "pending":
-                phone = token.patient_phone
+                phone        = token.patient_phone
                 patient_name = token.patient_name or "Patient"
 
                 if phone:
                     await send_template_message(phone, "reminder_for_confirmation", [])
 
                 await asyncio.sleep(second_delay_minutes * 60)
-
                 db.refresh(token)
 
                 if token.status == "pending":
-                    token.status = "cancelled"
+                    token.status       = "cancelled"
                     token.cancelled_at = datetime.utcnow()
-                    token.updated_at = datetime.utcnow()
+                    token.updated_at   = datetime.utcnow()
                     db.commit()
 
                     if phone:
@@ -237,7 +261,7 @@ async def schedule_confirmation_checks(token_id: str, first_delay_minutes: int =
                     if phone:
                         await send_template_message(phone, "template", [])
 
-        except Exception as e:
+        except Exception:
             return
         finally:
             try:
@@ -245,15 +269,14 @@ async def schedule_confirmation_checks(token_id: str, first_delay_minutes: int =
             except Exception:
                 pass
 
-    try:
-        asyncio.create_task(_check_and_remind())
-    except Exception:
-        await _check_and_remind()
+    task = asyncio.create_task(_check_and_remind())
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
 
 async def schedule_skip_messages(token_id: str) -> None:
     async def _runner():
-        await asyncio.sleep(10 * 60) 
+        await asyncio.sleep(10 * 60)
 
         try:
             db = next(get_db())
@@ -263,10 +286,12 @@ async def schedule_skip_messages(token_id: str) -> None:
             if not token:
                 return
 
-            current_status = str(token.status.value if hasattr(token.status, 'value') else token.status).lower()
+            current_status = str(
+                token.status.value if hasattr(token.status, "value") else token.status
+            ).lower()
 
             if current_status == "skipped":
-                phone = token.patient_phone
+                phone        = token.patient_phone
                 patient_name = token.patient_name or "Patient"
                 token_number = str(token.display_code or token.token_number or "")
 
@@ -275,7 +300,7 @@ async def schedule_skip_messages(token_id: str) -> None:
                     await asyncio.sleep(2 * 60)
                     await send_template_message(phone, "template", [])
 
-        except Exception as e:
+        except Exception:
             return
         finally:
             try:
@@ -283,7 +308,6 @@ async def schedule_skip_messages(token_id: str) -> None:
             except Exception:
                 pass
 
-    try:
-        asyncio.create_task(_runner())
-    except Exception:
-        await _runner()
+    task = asyncio.create_task(_runner())
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
