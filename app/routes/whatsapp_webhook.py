@@ -39,8 +39,6 @@ async def twilio_whatsapp_webhook(
     """
     # 1. Security Validation (Twilio Signature)
     signature = request.headers.get("X-Twilio-Signature","")
-    #url = str(request.url)
-    # We need the raw body for signature validation
     body = await request.body()
     
     webhook_url = "https://oyster-app-notep.ondigitalocean.app/api/v1/webhooks/twilio/webhook"
@@ -60,7 +58,6 @@ async def twilio_whatsapp_webhook(
             raise
         except Exception as e:
             logger.error(f"Signature validation error: {e}")
-            # ✅ Don't block if validation fails — log and continue
             pass
 
     # 2. Parse Form Data
@@ -73,24 +70,18 @@ async def twilio_whatsapp_webhook(
     user_number = From.replace("whatsapp:", "").strip()
     message = Body.strip().lower()
 
-    # Normalize phone number to find the token
     digits = "".join([c for c in user_number if c.isdigit()])
-    
-    # Standard Pakistan local suffix is the last 10 digits (e.g., 3314044494)
     local_suffix = digits[-10:] if len(digits) >= 10 else digits
     
-    # Also try to match with +92 prefix if not present
     full_norm = f"+92{local_suffix}" if not user_number.startswith("+") else user_number
     if not full_norm.startswith("+"):
         full_norm = "+" + digits
 
     logger.info(f"Incoming Twilio WhatsApp: {user_number} → {message}")
-    logger.debug(f"Search Criteria: local_suffix={local_suffix}, digits={digits}, full_norm={full_norm}")
 
     twiml_response = MessagingResponse()
 
     # Find the latest active token for this user
-    # We search by patient_phone in Token table OR by User.phone via relationship
     query = db.query(Token).outerjoin(User, Token.patient_id == User.id).filter(
         or_(
             Token.patient_phone.like(f"%{local_suffix}"),
@@ -105,36 +96,8 @@ async def twilio_whatsapp_webhook(
     token = query.first()
 
     if not token:
-        # Let's see what tokens DO exist for this number regardless of status
-        any_token = db.query(Token).outerjoin(User, Token.patient_id == User.id).filter(
-            or_(
-                Token.patient_phone.like(f"%{local_suffix}"),
-                Token.patient_phone.like(f"%{digits}"),
-                User.phone.like(f"%{local_suffix}"),
-                User.phone.like(f"%{digits}")
-            )
-        ).first()
-        
-        if any_token:
-            logger.info(f"Token found but excluded. ID: {any_token.id}, Status: {any_token.status}")
-        else:
-            logger.info(f"No tokens found at all for this phone search: {local_suffix}")
-            # Let's check if the user even exists
-            user_exists = db.query(User).filter(
-                or_(
-                    User.phone.like(f"%{local_suffix}"),
-                    User.phone.like(f"%{digits}")
-                )
-            ).first()
-            if user_exists:
-                logger.info(f"User exists with ID {user_exists.id} but has no tokens.")
-            else:
-                logger.info(f"No user found with phone matching {local_suffix} or {digits}.")
-            
         twiml_response.message("You are not registered in any active queue.")
         return Response(content=str(twiml_response), media_type="application/xml")
-
-    logger.info(f"Found active token: {token.id}, Status: {token.status}, Patient: {token.patient_name or 'N/A'}")
 
     now = datetime.utcnow()
 
@@ -145,33 +108,29 @@ async def twilio_whatsapp_webhook(
         token.confirmed_at = now
         token.updated_at = now
         token.confirmation_status = "confirmed"
-        # ✅ FIX 1: Opt the user into the queue loop in the database
         token.queue_opt_in = True
         token.queue_opted_in_at = now
         db.commit()
         
-        # Cancel scheduled reminder jobs since user confirmed
+        # Cancel scheduled reminder jobs
         try:
             from app.services.app_scheduler import get_scheduler
             sch = get_scheduler()
             if sch:
-                # Remove reminder and final jobs for this token
                 for job_id in [f"confirm_reminder:{token.id}", f"confirm_final:{token.id}"]:
                     try:
                         sch.remove_job(job_id)
                         logger.info(f"Cancelled scheduled job {job_id} after YES reply")
                     except Exception:
-                        pass  # Job might not exist or already executed
+                        pass
         except Exception as e:
             logger.error(f"Failed to cancel reminder jobs for token {token.id}: {e}")
         
-        # Send professional Queue Update template after YES
+        # Send Queue Update template
         try:
             from app.services.whatsapp_service import send_template_message
             phone = user_number.replace("whatsapp:", "")
             
-            # Parameters for queue_update: name, patients_ahead, wait_time, location, token
-            # Calculate patients ahead: tokens with lower position and status 'waiting'/'confirmed'
             patients_ahead = db.query(Token).filter(
                 Token.doctor_id == token.doctor_id,
                 Token.hospital_id == token.hospital_id,
@@ -191,12 +150,12 @@ async def twilio_whatsapp_webhook(
                     str(token.token_number)
                 ]
             )
-            logger.info(f"Queue update sent to {phone} after YES confirmation")
             
-            # ✅ FIX 2: Trigger the message scheduler to handle the 2nd, 3rd, and ongoing queue updates
+            # ✅ FIX: Convert token to dictionary before passing to the scheduler to prevent crash
             try:
                 from app.services.message_scheduler import schedule_messages
-                await schedule_messages(token.id)
+                token_dict = {k: v for k, v in token.__dict__.items() if not k.startswith('_')}
+                await schedule_messages(token_dict)
                 logger.info(f"Ongoing queue update sequence scheduled for token {token.id}")
             except Exception as e:
                 logger.error(f"Failed to schedule ongoing messages for token {token.id}: {e}")
@@ -213,20 +172,17 @@ async def twilio_whatsapp_webhook(
         token.updated_at = now
         db.commit()
         
-        # Trigger recalculation for the rest of the queue
         try:
             from app.services.queue_management_service import QueueManagementService
             await QueueManagementService.recalculate_positions(token.doctor_id, token.hospital_id, token.appointment_date)
         except Exception as e:
-            logger.error(f"Error recalculating queue positions: {e}")
+            pass
 
-        # Send professional Cancelled template
         try:
             from app.services.whatsapp_service import send_template_message
             phone = user_number.replace("whatsapp:", "")
             await send_template_message(phone, "cancelled", [token.patient_name or "Patient"])
         except Exception as e:
-            logger.error(f"Failed to send cancelled template: {e}")
             twiml_response.message("Your appointment has been cancelled. Thank you.")
             return Response(content=str(twiml_response), media_type="application/xml")
 

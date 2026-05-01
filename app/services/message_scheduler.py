@@ -53,40 +53,43 @@ async def schedule_at(run_at: datetime, template_name: str, token_context: Dict[
 
 
 async def _build_token_context(token: Dict[str, Any]) -> Dict[str, Any]:
-    db = get_db()
+    db = next(get_db())
     ctx: Dict[str, Any] = dict(token or {})
 
-    patient_id = ctx.get("patient_id")
-    if patient_id and not ctx.get("patient_phone"):
-        try:
-            usnap = db.collection(COLLECTIONS["USERS"]).document(str(patient_id)).get()
-            if getattr(usnap, "exists", False):
-                u = usnap.to_dict() or {}
-                ctx["patient_phone"] = u.get("phone") or u.get("mobile")
-                ctx["patient_name"] = ctx.get("patient_name") or u.get("name")
-        except Exception:
-            pass
+    try:
+        patient_id = ctx.get("patient_id")
+        if patient_id and not ctx.get("patient_phone"):
+            try:
+                usnap = db.collection(COLLECTIONS["USERS"]).document(str(patient_id)).get()
+                if getattr(usnap, "exists", False):
+                    u = usnap.to_dict() or {}
+                    ctx["patient_phone"] = u.get("phone") or u.get("mobile")
+                    ctx["patient_name"] = ctx.get("patient_name") or u.get("name")
+            except Exception:
+                pass
 
-    doctor_id = ctx.get("doctor_id")
-    if doctor_id and not ctx.get("doctor_name"):
-        try:
-            dsnap = db.collection(COLLECTIONS["DOCTORS"]).document(str(doctor_id)).get()
-            if getattr(dsnap, "exists", False):
-                d = dsnap.to_dict() or {}
-                ctx["doctor_name"] = d.get("name")
-                ctx["department"] = ctx.get("department") or d.get("specialization") or d.get("subcategory") or d.get("department")
-        except Exception:
-            pass
+        doctor_id = ctx.get("doctor_id")
+        if doctor_id and not ctx.get("doctor_name"):
+            try:
+                dsnap = db.collection(COLLECTIONS["DOCTORS"]).document(str(doctor_id)).get()
+                if getattr(dsnap, "exists", False):
+                    d = dsnap.to_dict() or {}
+                    ctx["doctor_name"] = d.get("name")
+                    ctx["department"] = ctx.get("department") or d.get("specialization") or d.get("subcategory") or d.get("department")
+            except Exception:
+                pass
 
-    hospital_id = ctx.get("hospital_id")
-    if hospital_id and not ctx.get("hospital_name"):
-        try:
-            hsnap = db.collection(COLLECTIONS["HOSPITALS"]).document(str(hospital_id)).get()
-            if getattr(hsnap, "exists", False):
-                h = hsnap.to_dict() or {}
-                ctx["hospital_name"] = h.get("name")
-        except Exception:
-            pass
+        hospital_id = ctx.get("hospital_id")
+        if hospital_id and not ctx.get("hospital_name"):
+            try:
+                hsnap = db.collection(COLLECTIONS["HOSPITALS"]).document(str(hospital_id)).get()
+                if getattr(hsnap, "exists", False):
+                    h = hsnap.to_dict() or {}
+                    ctx["hospital_name"] = h.get("name")
+            except Exception:
+                pass
+    finally:
+        db.close()
 
     return ctx
 
@@ -182,12 +185,6 @@ async def schedule_messages(token: Dict[str, Any]) -> None:
 
 
 async def schedule_confirmation_checks(token_id: str, first_delay_minutes: int = 15, second_delay_minutes: int = 15) -> None:
-    """
-    After token booking:
-    - If no YES response in 15 min → send reminder_for_confirmation
-    - If still no response in next 15 min → auto cancel token + send cancelled message
-    - After 2 min of cancellation → send thankyou message
-    """
     async def _check_and_remind():
         await asyncio.sleep(first_delay_minutes * 60)
 
@@ -199,59 +196,38 @@ async def schedule_confirmation_checks(token_id: str, first_delay_minutes: int =
             if not token:
                 return
 
-            # If still pending (no YES response) → send reminder
             if token.status == "pending":
                 phone = token.patient_phone
                 patient_name = token.patient_name or "Patient"
 
                 if phone:
-                    await send_template_message(
-                        phone,
-                        "reminder_for_confirmation",
-                        []
-                    )
+                    await send_template_message(phone, "reminder_for_confirmation", [])
 
-                # Wait another 15 min then auto cancel
                 await asyncio.sleep(second_delay_minutes * 60)
 
-                # Re-fetch fresh token state
                 db.refresh(token)
 
                 if token.status == "pending":
-                    # ✅ Auto cancel the token
                     token.status = "cancelled"
                     token.cancelled_at = datetime.utcnow()
                     token.updated_at = datetime.utcnow()
                     db.commit()
 
-                    # ✅ Send cancelled message
                     if phone:
-                        await send_template_message(
-                            phone,
-                            "cancelled",
-                            [patient_name]
-                        )
+                        await send_template_message(phone, "cancelled", [patient_name])
 
-                    # ✅ Recalculate queue so receptionist portal updates
                     try:
                         from app.services.queue_management_service import QueueManagementService
                         await QueueManagementService.recalculate_positions(
-                            token.doctor_id,
-                            token.hospital_id,
-                            token.appointment_date
+                            token.doctor_id, token.hospital_id, token.appointment_date
                         )
-                    except Exception as e:
+                    except Exception:
                         pass
 
-                    # ✅ Wait 2 minutes then send thankyou message
                     await asyncio.sleep(2 * 60)
 
                     if phone:
-                        await send_template_message(
-                            phone,
-                            "template",  # thankyou template
-                            []
-                        )
+                        await send_template_message(phone, "template", [])
 
         except Exception as e:
             return
@@ -266,16 +242,10 @@ async def schedule_confirmation_checks(token_id: str, first_delay_minutes: int =
     except Exception:
         await _check_and_remind()
 
+
 async def schedule_skip_messages(token_id: str) -> None:
-    """
-    After a token is skipped:
-    - Wait 10 minutes
-    - If still skipped (not re-added) → send 'skipped' message
-    - Wait 2 more minutes → send 'template' (thankyou) message
-    - If re-added and completed → thankyou is handled by completion flow instead
-    """
     async def _runner():
-        await asyncio.sleep(10 * 60)  # Wait 10 minutes
+        await asyncio.sleep(10 * 60) 
 
         try:
             db = next(get_db())
@@ -287,31 +257,15 @@ async def schedule_skip_messages(token_id: str) -> None:
 
             current_status = str(token.status.value if hasattr(token.status, 'value') else token.status).lower()
 
-            # If still skipped (doctor/receptionist did NOT re-add them)
             if current_status == "skipped":
                 phone = token.patient_phone
                 patient_name = token.patient_name or "Patient"
                 token_number = str(token.display_code or token.token_number or "")
 
                 if phone:
-                    # Send skipped message
-                    await send_template_message(
-                        phone,
-                        "skipped",
-                        [patient_name, token_number]
-                    )
-
-                    # Wait 2 more minutes then send thankyou
+                    await send_template_message(phone, "skipped", [patient_name, token_number])
                     await asyncio.sleep(2 * 60)
-
-                    await send_template_message(
-                        phone,
-                        "template",
-                        []
-                    )
-
-            # If re-added (pending/called/confirmed/in_progress) → do nothing here
-            # Thankyou will be sent when they complete their appointment via complete flow
+                    await send_template_message(phone, "template", [])
 
         except Exception as e:
             return
@@ -324,4 +278,4 @@ async def schedule_skip_messages(token_id: str) -> None:
     try:
         asyncio.create_task(_runner())
     except Exception:
-        await _runner()        
+        await _runner()
