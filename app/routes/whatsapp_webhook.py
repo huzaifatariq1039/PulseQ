@@ -46,22 +46,23 @@ async def twilio_whatsapp_webhook(
     webhook_url = "https://oyster-app-notep.ondigitalocean.app/api/v1/webhooks/twilio/webhook"
     # Validate if in production or if signature is provided
     is_prod = os.getenv("ENVIRONMENT") == "production"
-    if is_prod:
-        if signature:
-            try:
-                from twilio.request_validator import RequestValidator
-                validator = RequestValidator(TWILIO_AUTH_TOKEN)
-                from urllib.parse import parse_qs
-                form_data = {k: v[0] for k, v in parse_qs(body.decode("utf-8")).items()}
+    if is_prod and signature:
+        try:
+            from twilio.request_validator import RequestValidator
+            validator = RequestValidator(TWILIO_AUTH_TOKEN)
+            from urllib.parse import parse_qs
+            form_data = {k: v[0] for k, v in parse_qs(body.decode("utf-8")).items()}
             
-                if not validator.validate(webhook_url, form_data, signature):
-                    logger.warning("Invalid Twilio signature")
-                #raise HTTPException(status_code=403, detail="Invalid Twilio Signature")
-            except Exception as e:
-                logger.error(f"Signature validation error: {e}")
-        else:
-            logger.warning("No Twilio signature — request may not be from Twilio")
-        # ✅ Don't raise — just log and continue
+            if not validator.validate(webhook_url, form_data, signature):
+                logger.warning("Invalid Twilio signature")
+                raise HTTPException(status_code=403, detail="Invalid Twilio Signature")
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Signature validation error: {e}")
+            # ✅ Don't block if validation fails — log and continue
+            pass
+
     # 2. Parse Form Data
     from urllib.parse import parse_qs
     form_data = {k: v[0] for k, v in parse_qs(body.decode("utf-8")).items()}
@@ -144,6 +145,9 @@ async def twilio_whatsapp_webhook(
         token.confirmed_at = now
         token.updated_at = now
         token.confirmation_status = "confirmed"
+        # ✅ FIX 1: Opt the user into the queue loop in the database
+        token.queue_opt_in = True
+        token.queue_opted_in_at = now
         db.commit()
         
         # Cancel scheduled reminder jobs since user confirmed
@@ -188,6 +192,15 @@ async def twilio_whatsapp_webhook(
                 ]
             )
             logger.info(f"Queue update sent to {phone} after YES confirmation")
+            
+            # ✅ FIX 2: Trigger the message scheduler to handle the 2nd, 3rd, and ongoing queue updates
+            try:
+                from app.services.message_scheduler import schedule_messages
+                await schedule_messages(token.id)
+                logger.info(f"Ongoing queue update sequence scheduled for token {token.id}")
+            except Exception as e:
+                logger.error(f"Failed to schedule ongoing messages for token {token.id}: {e}")
+
             return Response(content=str(MessagingResponse()), media_type="application/xml")
         except Exception as e:
             logger.error(f"Failed to send queue_update template: {e}")
