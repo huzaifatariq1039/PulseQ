@@ -754,22 +754,25 @@ async def generate_smart_token(
                   hospital_data.get("name", "Clinic"),
                   doctor_data.get("specialization", "General"), 
                   str(estimated_wait_time or 0)
-            ]
+                ]
             )
             logger.info(f"WhatsApp confirmation sent to {patient_phone} for token {token_id}")
         except Exception as e:
             logger.error(f"Failed to send WhatsApp confirmation for token {token_id}: {e}")
     
-        try:
-                # Assuming schedule_confirmation_checks is an async function
+        # NEW LOGIC: Only start the live 15-minute loop if the doctor is currently available
+        if str(doctor.status or "").lower() == "available":
+            try:
                 await schedule_confirmation_checks(
                     token_id=token_id,
                     first_delay_minutes=15,
                     second_delay_minutes=15
                 )
                 logger.info(f"Confirmation reminder scheduled for token {token_id}")
-        except Exception as e:
+            except Exception as e:
                 logger.error(f"Failed to schedule confirmation reminder for token {token_id}: {e}")
+        else:
+            logger.info(f"Doctor {doctor_id} is not yet available. Reminders for token {token_id} are paused.")
 
     return response_obj
 
