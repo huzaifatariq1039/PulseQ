@@ -60,17 +60,7 @@ def send_queue_message(phone: str, name: str, position: int, wait_time: int, doc
             )
             logger.info(f"WhatsApp template message (with buttons) sent to {formatted_phone}: SID {message.sid}")
         else:
-            message_body = f"""Apki appointment book ho chuki h!
-
-Doctor: {doctor_name}
-Patient: {name}
-Hospital: {hospital_name}
-Room Number: {room_number}
-Estimated Time: {wait_time} minutes
-
-Reply YES to receive live updates.
-
-PulseQ""".strip()
+            message_body = f"""Apki appointment book ho chuki h!\n\nDoctor: {doctor_name}\nPatient: {name}\nHospital: {hospital_name}\nRoom Number: {room_number}\nEstimated Time: {wait_time} minutes\n\nReply YES to receive live updates.\n\nPulseQ"""
             message = client.messages.create(
                 from_=from_number,
                 to=formatted_phone,
@@ -163,22 +153,8 @@ async def send_template_message(phone: str, template_name: str, params: list):
                 hospital_name = str(params[2]) if len(params) > 2 else "Clinic"
                 specialization = str(params[3]) if len(params) > 3 else "General"
                 wait_time = str(params[4]) if len(params) > 4 else "0"
-                body = f"""Apki appointment book ho chuki h!
-
-Doctor: {doctor_name}
-Patient: {name}
-Hospital: {hospital_name}
-Department: {specialization}
-Estimated Time: {wait_time} minutes
-
-Reply YES to receive live updates.
-
-PulseQ""".strip()
-                message = client.messages.create(
-                    from_=from_number,
-                    to=formatted_phone,
-                    body=body
-                )
+                body = f"""Apki appointment book ho chuki h!\n\nDoctor: {doctor_name}\nPatient: {name}\nHospital: {hospital_name}\nDepartment: {specialization}\nEstimated Time: {wait_time} minutes\n\nReply YES to receive live updates.\n\nPulseQ"""
+                message = client.messages.create(from_=from_number, to=formatted_phone, body=body)
                 logger.info(f"WhatsApp Token Number text sent (fallback) to {formatted_phone}: SID {message.sid}")
                 return message.sid
 
@@ -210,20 +186,8 @@ PulseQ""".strip()
             else:
                 name = str(params[0]) if params else "Patient"
                 token = str(params[1]) if len(params) > 1 else ""
-                body = f"""Hello {name},
-
-Aapki turn kisi bhi waqt aa sakti hai. Please hospital ki taraf rawana ho jayein.
-
-Aapka token number {token} hai.
-
-Kindly arrive on time.
-
-PulseQ""".strip()
-                message = client.messages.create(
-                    from_=from_number,
-                    to=formatted_phone,
-                    body=body
-                )
+                body = f"""Hello {name},\n\nAapki turn kisi bhi waqt aa sakti hai. Please hospital ki taraf rawana ho jayein.\n\nAapka token number {token} hai.\n\nKindly arrive on time.\n\nPulseQ"""
+                message = client.messages.create(from_=from_number, to=formatted_phone, body=body)
                 logger.info(f"WhatsApp Final Alert text sent (fallback) to {formatted_phone}: SID {message.sid}")
                 return message.sid
 
@@ -247,23 +211,8 @@ PulseQ""".strip()
                 old_doctor = str(params[1]) if len(params) > 1 else ""
                 new_doctor = str(params[2]) if len(params) > 2 else ""
                 link = str(params[3]) if len(params) > 3 and params[3] else "https://pulseq.blog/"
-                body = f"""Hello {name},
-
-Dr.{old_doctor} emergency ki wajah se available nahi hain.
-
-Aapki appointment update kar di gayi hai: Dr.{new_doctor}
-
-Agar aap apni appointment modify karna chahte hain, to neeche diye gaye link ko use karein:
-{link}
-
-Agar aap appointment cancel karna chahte hain, to Cancel button par click karein.
-
-Shukriya aapke cooperation ka.""".strip()
-                message = client.messages.create(
-                    from_=from_number,
-                    to=formatted_phone,
-                    body=body
-                )
+                body = f"""Hello {name},\n\nDr.{old_doctor} emergency ki wajah se available nahi hain.\n\nAapki appointment update kar di gayi hai: Dr.{new_doctor}\n\nAgar aap apni appointment modify karna chahte hain, to neeche diye gaye link ko use karein:\n{link}\n\nAgar aap appointment cancel karna chahte hain, to Cancel button par click karein.\n\nShukriya aapke cooperation ka."""
+                message = client.messages.create(from_=from_number, to=formatted_phone, body=body)
                 logger.info(f"WhatsApp Doctor Change text sent (fallback) to {formatted_phone}: SID {message.sid}")
                 return message.sid
 
@@ -281,21 +230,8 @@ Shukriya aapke cooperation ka.""".strip()
                 return message.sid
             else:
                 name = str(params[0]) if params else "Patient"
-                body = f"""Hello {name},
-
-Aapki appointment cancel ho chuki hai.
-
-Agr ap dobara book krna chahte hain to is website ka through book kr skte hain: https://pulseq.blog/
-Ya Hospital reception sa rabta karein.
-
-Thankyou
-
-PulseQ""".strip()
-                message = client.messages.create(
-                    from_=from_number,
-                    to=formatted_phone,
-                    body=body
-                )
+                body = f"""Hello {name},\n\nAapki appointment cancel ho chuki hai.\n\nAgr ap dobara book krna chahte hain to is website ka through book kr skte hain: https://pulseq.blog/\nYa Hospital reception sa rabta karein.\n\nThankyou\n\nPulseQ"""
+                message = client.messages.create(from_=from_number, to=formatted_phone, body=body)
                 logger.info(f"WhatsApp Cancelled text sent (fallback) to {formatted_phone}: SID {message.sid}")
                 return message.sid
 
@@ -309,21 +245,8 @@ PulseQ""".strip()
                 logger.info(f"WhatsApp Thankyou template sent to {formatted_phone}: SID {message.sid}")
                 return message.sid
             else:
-                body = """Thankyou for visiting PulseQ.
-
-For future appointments use this link:
-https://pulseq.blog/
-
-Did you like our service?
-
-(Reply with one of the options below)
-1. Yes, It was Great
-2. No, I didn't like it""".strip()
-                message = client.messages.create(
-                    from_=from_number,
-                    to=formatted_phone,
-                    body=body
-                )
+                body = """Thankyou for visiting PulseQ.\n\nFor future appointments use this link:\nhttps://pulseq.blog/\n\nDid you like our service?\n\n(Reply with one of the options below)\n1. Yes, It was Great\n2. No, I didn't like it"""
+                message = client.messages.create(from_=from_number, to=formatted_phone, body=body)
                 logger.info(f"WhatsApp Thankyou text sent (fallback) to {formatted_phone}: SID {message.sid}")
                 return message.sid
 
@@ -343,20 +266,8 @@ Did you like our service?
             else:
                 name = str(params[0]) if params else "Patient"
                 token = str(params[1]) if len(params) > 1 else ""
-                body = f"""Hello {name},
-
-Lagta hai ke aap apni scheduled appointment miss kar chuke hain. Aapka token number {token} tha.
-
-Kindly jald az jald hospital reception se rabta karein taake aap apni appointment reschedule kar saken ya mazeed madad le saken.
-
-Thank you for your attention.
-
-PulseQ""".strip()
-                message = client.messages.create(
-                    from_=from_number,
-                    to=formatted_phone,
-                    body=body
-                )
+                body = f"""Hello {name},\n\nLagta hai ke aap apni scheduled appointment miss kar chuke hain. Aapka token number {token} tha.\n\nKindly jald az jald hospital reception se rabta karein taake aap apni appointment reschedule kar saken ya mazeed madad le saken.\n\nThank you for your attention.\n\nPulseQ"""
+                message = client.messages.create(from_=from_number, to=formatted_phone, body=body)
                 logger.info(f"WhatsApp Skipped text sent (fallback) to {formatted_phone}: SID {message.sid}")
                 return message.sid
 
@@ -370,14 +281,8 @@ PulseQ""".strip()
                 logger.info(f"WhatsApp Reminder Confirm template sent to {formatted_phone}: SID {message.sid}")
                 return message.sid
             else:
-                body = """Aapki appointment ke liye koi response receive nahi hua.
-
-Reply YES karein updates confirm karne ke liye aur NO karein cancel karne ke liye.""".strip()
-                message = client.messages.create(
-                    from_=from_number,
-                    to=formatted_phone,
-                    body=body
-                )
+                body = """Aapki appointment ke liye koi response receive nahi hua.\n\nReply YES karein updates confirm karne ke liye aur NO karein cancel karne ke liye."""
+                message = client.messages.create(from_=from_number, to=formatted_phone, body=body)
                 logger.info(f"WhatsApp Reminder Confirm text sent (fallback) to {formatted_phone}: SID {message.sid}")
                 return message.sid
 
@@ -403,19 +308,8 @@ Reply YES karein updates confirm karne ke liye aur NO karein cancel karne ke liy
                 wait_time = str(params[2]) if len(params) > 2 else "0"
                 location = str(params[3]) if len(params) > 3 else "Clinic"
                 token = str(params[4]) if len(params) > 4 else "Token"
-                body = f"""Dear {name},
-
-Aapki turn qareeb aa rahi hai. Aap se pehle {patients_ahead} patients hain. Taqreeban wait {wait_time} hai. Please {location} ki taraf chle jayein.
-Token: {token}
-
-Kindly tayar rhein.
-
-PulseQ""".strip()
-                message = client.messages.create(
-                    from_=from_number,
-                    to=formatted_phone,
-                    body=body
-                )
+                body = f"""Dear {name},\n\nAapki turn qareeb aa rahi hai. Aap se pehle {patients_ahead} patients hain. Taqreeban wait {wait_time} hai. Please {location} ki taraf chle jayein.\nToken: {token}\n\nKindly tayar rhein.\n\nPulseQ"""
+                message = client.messages.create(from_=from_number, to=formatted_phone, body=body)
                 logger.info(f"WhatsApp Queue Update text sent (fallback) to {formatted_phone}: SID {message.sid}")
                 return message.sid
 
