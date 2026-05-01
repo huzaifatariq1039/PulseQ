@@ -44,7 +44,14 @@ from app.routes.auth_otp import router as otp_router
 # FIX 2: Compute cors_origins BEFORE lifespan so the startup log doesn't crash
 _origins_env = os.getenv("ALLOWED_ORIGINS", "")
 _allowed_origins = [o.strip() for o in _origins_env.split(",") if o.strip()]
-_default_origins = [o for o in [WEB_BASE_URL, MOBILE_BASE_URL, "http://localhost:4200"] if o]
+_default_origins = [o for o in [WEB_BASE_URL, MOBILE_BASE_URL, "https://pulseq.health",               # Main Landing Page
+    "https://www.pulseq.health",
+    "https://patient.pulseq.health",       # Patient Portal
+    "https://doctor.pulseq.health",        # Doctor Portal
+    "https://reception.pulseq.health",     # Reception Portal
+    "https://pharmacy.pulseq.health",      # Pharmacy Portal
+    "https://admin.pulseq.health",         # Admin Portal
+    "https://demo.pulseq.health"] if o]
 _extra = EXTRA_CORS_ORIGINS or []
 if not (_allowed_origins or _default_origins or _extra):
     _allowed_origins = ["*"]
