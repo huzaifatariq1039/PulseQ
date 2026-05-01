@@ -6,25 +6,23 @@ from sqlalchemy.orm import Session
 from app.db_models import Doctor, Hospital, User, Queue as DBQueue, Department, Token, Refund
 from app.security import get_current_active_user, require_roles, get_password_hash
 from app.utils.responses import ok
-from datetime import datetime, timezone
+from datetime import datetime, timezone, time
 import random
 import logging
+import asyncio
 from app.services.cache_service import CacheService, cached
- 
+
 # FIX 4: Split into two routers — public (read-only) and staff (write + auth-gated)
-# main.py mounts:
-#   public_router -> /api/v1/public/doctors
-#   router        -> /api/v1/staff/doctors  AND  /api/v1/doctors
 public_router = APIRouter(tags=["Public Discovery - Doctors"])
 router = APIRouter(tags=["Staff Portal - Doctor Management"])
- 
+
 logger = logging.getLogger("performance.doctors")
- 
- 
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
- 
+
 def _is_doctor_available_today(doctor: Doctor) -> bool:
     try:
         status_val = str(doctor.status or "").lower()
@@ -40,7 +38,7 @@ def _is_doctor_available_today(doctor: Doctor) -> bool:
                 return False
         now_utc = datetime.now(timezone.utc)
         current_time_str = now_utc.strftime("%H:%M")
- 
+
         def parse_time(time_str: str) -> Optional[str]:
             if not time_str:
                 return None
@@ -65,7 +63,7 @@ def _is_doctor_available_today(doctor: Doctor) -> bool:
                     if 0 <= h <= 23 and 0 <= mm <= 59:
                         return f"{h:02d}:{mm:02d}"
             return None
- 
+
         start_time = parse_time(doctor.start_time)
         end_time = parse_time(doctor.end_time)
         if not start_time or not end_time:
@@ -74,15 +72,15 @@ def _is_doctor_available_today(doctor: Doctor) -> bool:
     except Exception as e:
         logger.error(f"Error checking doctor availability: {e}")
         return False
- 
- 
+
+
 def batch_fetch_queues(doctor_ids: List[str], db: Session) -> Dict[str, DBQueue]:
     if not doctor_ids:
         return {}
     queues = db.query(DBQueue).filter(DBQueue.doctor_id.in_(doctor_ids)).all()
     return {q.doctor_id: q for q in queues}
- 
- 
+
+
 def build_queue_status(doctor_id: str, queue_obj: Optional[DBQueue]) -> QueueStatus:
     if queue_obj:
         return QueueStatus(
@@ -98,8 +96,8 @@ def build_queue_status(doctor_id: str, queue_obj: Optional[DBQueue]) -> QueueSta
         waiting_patients=waiting_patients,
         estimated_wait_time_minutes=waiting_patients * 3,
     )
- 
- 
+
+
 def _fmt_time_12h(v: Any) -> Optional[str]:
     try:
         s = str(v or "").strip()
@@ -130,8 +128,8 @@ def _fmt_time_12h(v: Any) -> Optional[str]:
         return f"{h12:02d}:{mm:02d} {mer}"
     except Exception:
         return None
- 
- 
+
+
 def _normalize_time_to_hhmm(s: Optional[str]) -> Optional[str]:
     if s is None:
         return None
@@ -170,14 +168,14 @@ def _normalize_time_to_hhmm(s: Optional[str]) -> Optional[str]:
         return None
     except Exception:
         return None
- 
- 
+
+
 # ---------------------------------------------------------------------------
 # FIX 3: Static/specific routes FIRST, dynamic /{doctor_id} routes LAST
 # ---------------------------------------------------------------------------
- 
+
 # ==================== STAFF-ONLY ENDPOINTS (router) ====================
- 
+
 @router.patch("/status", dependencies=[Depends(require_roles("receptionist", "admin"))])
 async def update_doctor_status(
     payload: Dict[str, Any],
@@ -190,11 +188,11 @@ async def update_doctor_status(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="doctor_id is required")
     if new_status not in {"available", "busy", "offline", "on_leave"}:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="status is invalid")
- 
+
     doctor = db.query(Doctor).filter(Doctor.id == doctor_id).first()
     if not doctor:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Doctor not found")
- 
+
     if new_status == "on_leave":
         from app.services.doctor_leave_service import DoctorLeaveService
         leave_action = (payload or {}).get("leave_action") or (payload or {}).get("leave_handling")
@@ -206,16 +204,47 @@ async def update_doctor_status(
             alternate_doctor_id=alternate_doctor_id,
             reason=reason,
         )
- 
+
+    old_status = str(doctor.status or "").lower()
+    
     now = datetime.utcnow()
     doctor.status = new_status
     doctor.updated_at = now
     db.commit()
     db.refresh(doctor)
+    
+    # NEW LOGIC: Trigger queue updates for patients if doctor becomes available
+    if new_status == "available" and old_status != "available":
+        logger.info(f"Doctor {doctor.id} is now available. Waking up pending tokens...")
+        from app.services.confirmation_scheduler import schedule_confirmation_checks
+        
+        today = datetime.utcnow().date()
+        start_of_day = datetime.combine(today, time.min)
+        end_of_day = datetime.combine(today, time.max)
+        
+        pending_tokens = db.query(Token).filter(
+            Token.doctor_id == doctor.id,
+            Token.appointment_date >= start_of_day,
+            Token.appointment_date <= end_of_day,
+            Token.status.in_(["pending", "waiting", "confirmed", "TokenStatus.PENDING", "TokenStatus.WAITING"])
+        ).all()
+        
+        for pt in pending_tokens:
+            try:
+                asyncio.create_task(
+                    schedule_confirmation_checks(
+                        token_id=str(pt.id),
+                        first_delay_minutes=1, 
+                        second_delay_minutes=15
+                    )
+                )
+            except Exception as e:
+                logger.error(f"Failed to start queue updates for token {pt.id}: {e}")
+
     merged = {k: v for k, v in doctor.__dict__.items() if not k.startswith('_')}
     return {"success": True, "data": merged, "message": "Doctor status updated"}
- 
- 
+
+
 @router.get("/manage", dependencies=[Depends(require_roles("receptionist", "admin"))])
 async def receptionist_manage_doctors(
     db: Session = Depends(get_db),
@@ -237,7 +266,7 @@ async def receptionist_manage_doctors(
         s = str(search).strip()
         if s:
             query = query.filter(Doctor.name.ilike(f"%{s}%"))
- 
+
     total = query.count()
     doctors = (
         query.order_by(Doctor.updated_at.desc(), Doctor.created_at.desc())
@@ -245,7 +274,7 @@ async def receptionist_manage_doctors(
         .limit(page_size)
         .all()
     )
- 
+
     out: List[Dict[str, Any]] = []
     for doctor in doctors:
         it = {k: v for k, v in doctor.__dict__.items() if not k.startswith('_')}
@@ -269,10 +298,10 @@ async def receptionist_manage_doctors(
             "status": str(it.get("status") or "available").lower(),
             "hospital_id": it.get("hospital_id"),
         })
- 
+
     return {"success": True, "data": out, "meta": {"page": page, "page_size": page_size, "total": total}}
- 
- 
+
+
 @router.get("/departments", dependencies=[Depends(require_roles("receptionist", "admin", "patient"))])
 async def receptionist_list_departments(
     db: Session = Depends(get_db),
@@ -286,10 +315,10 @@ async def receptionist_list_departments(
     names = [str(d.specialization or "").strip() for d in doctors if d.specialization]
     out = sorted(set(names), key=lambda x: x.lower())
     return {"success": True, "data": out}
- 
- 
+
+
 # ==================== DEPARTMENT MANAGEMENT (Admin) ====================
- 
+
 @router.post("/departments", dependencies=[Depends(require_roles("admin"))])
 async def create_department(
     payload: Dict[str, Any],
@@ -300,22 +329,22 @@ async def create_department(
     name = str(payload.get("name") or "").strip()
     hospital_id = str(payload.get("hospital_id") or "").strip()
     description = str(payload.get("description") or "").strip()
- 
+
     if not name:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Department name is required")
     if not hospital_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Hospital ID is required")
- 
+
     hospital = db.query(Hospital).filter(Hospital.id == hospital_id).first()
     if not hospital:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Hospital not found")
- 
+
     existing = db.query(Department).filter(
         Department.name == name, Department.hospital_id == hospital_id
     ).first()
     if existing:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Department already exists")
- 
+
     new_department = Department(
         id=str(uuid.uuid4()),
         name=name,
@@ -331,8 +360,8 @@ async def create_department(
               "hospital_id": new_department.hospital_id, "created_at": new_department.created_at},
         message="Department created successfully",
     )
- 
- 
+
+
 @router.get("/departments/list", dependencies=[Depends(require_roles("admin", "receptionist"))])
 async def get_departments_list(
     db: Session = Depends(get_db),
@@ -346,8 +375,8 @@ async def get_departments_list(
         {"id": d.id, "name": d.name, "hospital_id": d.hospital_id, "created_at": d.created_at}
         for d in departments
     ])
- 
- 
+
+
 @router.put("/departments/{department_id}", dependencies=[Depends(require_roles("admin"))])
 @router.patch("/departments/{department_id}", dependencies=[Depends(require_roles("admin"))])
 async def update_department(
@@ -359,7 +388,7 @@ async def update_department(
     department = db.query(Department).filter(Department.id == department_id).first()
     if not department:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Department not found")
- 
+
     if "name" in payload:
         new_name = str(payload["name"]).strip()
         if not new_name:
@@ -374,7 +403,7 @@ async def update_department(
             if not hospital:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Hospital not found")
             department.hospital_id = new_hospital_id
- 
+
     db.commit()
     db.refresh(department)
     logger.info(f"Admin {current_user.user_id} updated department: {department_id}")
@@ -383,8 +412,8 @@ async def update_department(
               "hospital_id": department.hospital_id, "created_at": department.created_at},
         message="Department updated successfully",
     )
- 
- 
+
+
 @router.delete("/departments/{department_id}", dependencies=[Depends(require_roles("admin"))])
 async def delete_department(
     department_id: str,
@@ -394,7 +423,7 @@ async def delete_department(
     department = db.query(Department).filter(Department.id == department_id).first()
     if not department:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Department not found")
- 
+
     doctors_count = db.query(Doctor).filter(
         Doctor.specialization == department.name,
         Doctor.hospital_id == department.hospital_id,
@@ -404,13 +433,13 @@ async def delete_department(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Cannot delete department. {doctors_count} doctor(s) are assigned to this department",
         )
- 
+
     db.delete(department)
     db.commit()
     logger.info(f"Admin {current_user.user_id} deleted department: {department_id}")
     return ok(message="Department deleted successfully")
- 
- 
+
+
 # FIX 5: Added auth guard — previously anyone could create a doctor
 @router.post("/", response_model=DoctorResponse, dependencies=[Depends(require_roles("admin", "receptionist"))])
 async def create_doctor(
@@ -419,14 +448,14 @@ async def create_doctor(
     current_user=Depends(get_current_active_user),
 ):
     existing_doctor = db.query(Doctor).filter(
-        Doctor.name == doctor.name, Doctor.hospital_id == doctor.hospital_id
+        Doctor.email == doctor.email, Doctor.hospital_id == doctor.hospital_id
     ).first()
     if existing_doctor:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Doctor with this name already exists in this hospital",
+            detail="Doctor with this email already exists in this hospital",
         )
- 
+
     import uuid
     doctor_data = doctor.dict()
         
@@ -439,7 +468,7 @@ async def create_doctor(
         doctor_data["start_time"] = norm_start
     if norm_end:
         doctor_data["end_time"] = norm_end
- 
+
     doctor_data["id"] = str(uuid.uuid4())
     doctor_data["created_at"] = datetime.utcnow()
     doctor_data["updated_at"] = datetime.utcnow()
@@ -464,35 +493,29 @@ async def create_doctor(
     ).lower().strip()
     
     # Check if department supports session-based pricing
-    # NOTE: This is optional - doctors in these departments MAY have session_fee, but it's not required
     inferred_has_session = any(
         kw in dept_text for kw in ("psychology", "psychiatry", "physiotherapist", "physiotherapy", "physio")
     )
     
     if inferred_has_session:
-        # Session-based departments: session_fee is OPTIONAL
-        # If provided, must be > 0. If not provided or 0, doctor uses standard consultation_fee
         try:
             session_fee_val = float(doctor_data.get("session_fee") or 0)
         except Exception:
             session_fee_val = 0
         
         if session_fee_val > 0:
-            # Doctor charges per session
             doctor_data["has_session"] = True
             doctor_data["pricing_type"] = "session_based"
             doctor_data["session_fee"] = session_fee_val
         else:
-            # Doctor uses standard consultation fee (no session pricing)
             doctor_data["has_session"] = False
             doctor_data["pricing_type"] = "standard"
             doctor_data["session_fee"] = None
     else:
-        # Non-session departments: always standard pricing
         doctor_data["has_session"] = False
         doctor_data["pricing_type"] = "standard"
         doctor_data["session_fee"] = None
- 
+
     if not doctor_data.get("avatar_initials"):
         name_parts = doctor.name.split()
         if len(name_parts) >= 2:
@@ -500,17 +523,14 @@ async def create_doctor(
         else:
             doctor_data["avatar_initials"] = doctor.name[:2].upper()
     
-    # Create User account for the doctor if email and password are provided
     user_id = None
     if doctor.email and doctor_password:
-        # Validate hospital_id before creating user
         if not doctor.hospital_id or doctor.hospital_id.strip() == "":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="hospital_id is required and cannot be empty",
             )
         
-        # Check if hospital exists
         hospital = db.query(Hospital).filter(Hospital.id == doctor.hospital_id).first()
         if not hospital:
             raise HTTPException(
@@ -518,7 +538,6 @@ async def create_doctor(
                 detail=f"Hospital with id '{doctor.hospital_id}' not found",
             )
         
-        # Check if user with this email already exists
         existing_user = db.query(User).filter(User.email == doctor.email).first()
         if existing_user:
             raise HTTPException(
@@ -526,7 +545,6 @@ async def create_doctor(
                 detail=f"User with email {doctor.email} already exists",
             )
             
-        # Create User account
         user_id = str(uuid.uuid4())
         new_user = User(
             id=user_id,
@@ -539,18 +557,16 @@ async def create_doctor(
             updated_at=datetime.utcnow(),
         )
         db.add(new_user)
-        db.flush()  # Flush to get the user_id without committing
+        db.flush()
         logger.info(f"Created user account for doctor: {doctor.email}")
     
-    # Create Doctor record
-    # Validate hospital_id for doctor record
     if not doctor_data.get("hospital_id") or doctor_data["hospital_id"].strip() == "":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="hospital_id is required for doctor",
         )
     
-    doctor_data["user_id"] = user_id  # Link to User account
+    doctor_data["user_id"] = user_id
         
     new_doctor = Doctor(**doctor_data)
     db.add(new_doctor)
@@ -559,11 +575,11 @@ async def create_doctor(
         
     logger.info(f"Admin {current_user.user_id} created doctor: {doctor.name} (user_id={user_id})")
     return DoctorResponse(**doctor_data)
- 
- 
+
+
 # ==================== PUBLIC ENDPOINTS (public_router) ====================
 # FIX 3: Static paths before dynamic /{doctor_id} — on BOTH routers
- 
+
 @public_router.get("/", response_model=List[DoctorResponse])
 async def list_doctors_public(
     hospital_id: Optional[str] = Query(None),
@@ -616,8 +632,8 @@ async def list_doctors_staff(
         limit=limit,
         db=db,
     )
- 
- 
+
+
 @public_router.get("/categories")
 @router.get("/categories")
 @cached(ttl=CacheService.TTL_VERY_LONG)
@@ -637,8 +653,8 @@ async def get_doctor_categories():
             "Laparoscopic Surgery", "Reconstructive Surgery",
         ],
     }
- 
- 
+
+
 @public_router.get("/subcategories")
 @router.get("/subcategories")
 async def get_subcategories(
@@ -673,7 +689,7 @@ async def get_subcategories(
             key=lambda x: x.lower(),
         )
         return {"main_category": main_category, "subcategories": cleaned}
- 
+
     doctors = db.query(Doctor).filter(Doctor.hospital_id == hospital_id).all()
     dyn: set[str] = set()
     general_set = set(category_mappings["General Medical"])
@@ -691,11 +707,11 @@ async def get_subcategories(
         else:
             if "surgeon" not in low_sub and sub and sub not in general_set: dyn.add(sub)
             if "surgeon" not in low_spec and spec and spec not in general_set: dyn.add(spec)
- 
+
     cleaned = sorted({s for s in dyn if s and s.strip().lower() not in main_labels_norm}, key=lambda x: x.lower())
     return {"main_category": main_category, "hospital_id": hospital_id, "subcategories": cleaned}
- 
- 
+
+
 @public_router.get("/search", response_model=DoctorSearchResponse)
 @router.get("/search", response_model=DoctorSearchResponse)
 async def search_doctors(
@@ -741,8 +757,8 @@ async def search_doctors(
         hospital_id=hospital_id or "",
         category=category,
     )
- 
- 
+
+
 @public_router.get("/hospital/{hospital_id}", response_model=DoctorSearchResponse)
 @router.get("/hospital/{hospital_id}", response_model=DoctorSearchResponse)
 async def get_doctors_by_hospital(
@@ -776,7 +792,7 @@ async def get_doctors_by_hospital(
                 main_selected = key
                 resolved_subcategories = list(subs)
                 break
- 
+
     filtered_doctors = []
     for doctor in doctors:
         doctor_sub = (doctor.subcategory or "").strip()
@@ -810,7 +826,7 @@ async def get_doctors_by_hospital(
                 filtered_doctors.append(doctor)
             continue
         filtered_doctors.append(doctor)
- 
+
     filtered_doctors = filtered_doctors[:limit]
     doctor_ids = [d.id for d in filtered_doctors]
     queues_map = batch_fetch_queues(doctor_ids, db)
@@ -819,7 +835,7 @@ async def get_doctors_by_hospital(
         doctor_response = DoctorResponse(**_doctor_to_dict(doctor))
         queue = build_queue_status(doctor.id, queues_map.get(doctor.id))
         doctors_with_queue.append(DoctorWithQueue(doctor=doctor_response, queue=queue))
- 
+
     main_labels_norm = {k.strip().lower() for k in main_category_map.keys()}
     cleaned_subcats = sorted(
         {s for s in (resolved_subcategories or []) if s and s.strip().lower() not in main_labels_norm},
@@ -827,8 +843,8 @@ async def get_doctors_by_hospital(
     )
     return {"doctors": doctors_with_queue, "total_found": len(doctors_with_queue),
             "hospital_id": hospital_id, "category": category, "subcategories": cleaned_subcats}
- 
- 
+
+
 @public_router.get("/by-category/{main_category}")
 @router.get("/by-category/{main_category}")
 async def get_doctors_by_main_category(
@@ -883,7 +899,7 @@ async def get_doctors_by_main_category(
                 results.append(doctor)
         if len(results) >= limit:
             break
- 
+
     doctor_ids = [d.id for d in results]
     queues_map = batch_fetch_queues(doctor_ids, db)
     doctors_with_queue = []
@@ -891,7 +907,7 @@ async def get_doctors_by_main_category(
         doctor_response = DoctorResponse(**_doctor_to_dict(doctor))
         queue = build_queue_status(doctor.id, queues_map.get(doctor.id))
         doctors_with_queue.append(DoctorWithQueue(doctor=doctor_response, queue=queue))
- 
+
     main_labels_norm = {k.strip().lower() for k in category_mappings.keys()}
     cleaned_subcats = sorted(
         {s for s in subcategories if s and s.strip().lower() not in main_labels_norm},
@@ -899,12 +915,12 @@ async def get_doctors_by_main_category(
     )
     return {"doctors": doctors_with_queue, "total_found": len(doctors_with_queue),
             "main_category": main_category, "subcategories": cleaned_subcats}
- 
- 
+
+
 # ==================== DYNAMIC /{doctor_id} ROUTES — ALWAYS LAST ====================
 # FIX 3: These must come after all static paths or FastAPI will match e.g.
-#         GET /search → doctor_id="search" instead of the search endpoint.
- 
+#        GET /search → doctor_id="search" instead of the search endpoint.
+
 @router.patch("/{doctor_id}", dependencies=[Depends(require_roles("receptionist", "admin"))])
 async def receptionist_update_doctor(
     doctor_id: str,
@@ -915,7 +931,7 @@ async def receptionist_update_doctor(
     doctor = db.query(Doctor).filter(Doctor.id == doctor_id).first()
     if not doctor:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Doctor not found")
- 
+
     allowed = {
         "name", "department", "specialization", "subcategory", "phone", "email",
         "experience_years", "fee", "consultation_fee", "session_fee", "available_days",
@@ -923,11 +939,11 @@ async def receptionist_update_doctor(
         "qualification", "degrees", "patients_per_day", "status",
     }
     update: Dict[str, Any] = {k: v for k, v in (payload or {}).items() if k in allowed}
- 
+
     if "fee" in update and "consultation_fee" not in update:
         update["consultation_fee"] = update.get("fee")
     update.pop("fee", None)
- 
+
     for field in ("start_time", "end_time"):
         if field in update:
             norm = _normalize_time_to_hhmm(update.get(field))
@@ -935,20 +951,20 @@ async def receptionist_update_doctor(
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{field} is invalid")
             if norm:
                 update[field] = norm
- 
+
     if "department" in update and "specialization" not in update:
         update["specialization"] = update.get("department")
     if "specialization" in update and "department" not in update:
         update["department"] = update.get("specialization")
- 
+
     if "status" in update and update["status"] is not None:
         update["status"] = str(update["status"]).strip().lower()
         if update["status"] not in {"available", "busy", "offline", "on_leave"}:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="status is invalid")
- 
+
     merged = {k: v for k, v in doctor.__dict__.items() if not k.startswith('_')}
     merged.update(update)
- 
+
     dept_text = (
         f"{merged.get('specialization') or ''} "
         f"{merged.get('subcategory') or ''} "
@@ -974,7 +990,7 @@ async def receptionist_update_doctor(
         merged["has_session"] = False
         merged["pricing_type"] = "standard"
         merged["session_fee"] = None
- 
+
     merged["updated_at"] = datetime.utcnow()
     persist = dict(update)
     persist.update({
@@ -986,18 +1002,18 @@ async def receptionist_update_doctor(
     })
     for field in ("department", "room", "qualifications", "qualification", "degrees", "experience_years", "phone", "email"):
         persist.pop(field, None)
- 
+
     for key, value in persist.items():
         if hasattr(doctor, key):
             setattr(doctor, key, value)
- 
+
     db.commit()
     db.refresh(doctor)
     if not merged.get("id"):
         merged["id"] = doctor_id
     return {"success": True, "data": merged, "message": "Doctor updated"}
- 
- 
+
+
 # FIX 4: delete_doctor now only on `router` (staff), not on public_router
 @router.delete("/{doctor_id}", dependencies=[Depends(require_roles("admin", "receptionist"))])
 async def delete_doctor(
@@ -1009,7 +1025,7 @@ async def delete_doctor(
         doctor = db.query(Doctor).filter(Doctor.id == doctor_id).first()
         if not doctor:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Doctor not found")
- 
+
         active_tokens = db.query(Token).filter(
             Token.doctor_id == doctor_id,
             Token.status.in_(["pending", "waiting", "confirmed", "called", "in_consultation"]),
@@ -1019,11 +1035,11 @@ async def delete_doctor(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot delete doctor. They have {active_tokens} active token(s). Please cancel or complete them first.",
             )
- 
+
         doctor_name = doctor.name
         doctor_specialization = doctor.specialization
         token_ids = [t[0] for t in db.query(Token.id).filter(Token.doctor_id == doctor_id).all()]
- 
+
         refunds_deleted_count = 0
         tokens_deleted_count = 0
         if token_ids:
@@ -1031,11 +1047,11 @@ async def delete_doctor(
             db.flush()
             tokens_deleted_count = db.query(Token).filter(Token.doctor_id == doctor_id).delete(synchronize_session=False)
             db.flush()
- 
+
         db.delete(doctor)
         db.commit()
         logger.info(f"User {current_user.user_id} deleted doctor: {doctor_id} ({doctor_name}) - {tokens_deleted_count} tokens, {refunds_deleted_count} refunds deleted")
- 
+
         return {
             "success": True,
             "message": f"Doctor {doctor_name} ({doctor_specialization}) has been deleted successfully",
@@ -1051,8 +1067,8 @@ async def delete_doctor(
         db.rollback()
         logger.error(f"Error deleting doctor {doctor_id}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to delete doctor: {str(e)}")
- 
- 
+
+
 @public_router.get("/{doctor_id}/details")
 @router.get("/{doctor_id}/details")
 async def get_doctor_details(doctor_id: str, db: Session = Depends(get_db)):
@@ -1075,8 +1091,8 @@ async def get_doctor_details(doctor_id: str, db: Session = Depends(get_db)):
         "about": doctor.about if hasattr(doctor, 'about') else None,
         "room_number": doctor.room_number if hasattr(doctor, 'room_number') else None,
     }
- 
- 
+
+
 @public_router.get("/{doctor_id}/available-slots")
 @router.get("/{doctor_id}/available-slots")
 async def get_available_slots(
@@ -1097,8 +1113,8 @@ async def get_available_slots(
     slots = generate_slots_for_doctor(doc, d, slot_minutes=slot_minutes)
     out = [{"time": s.get("time"), "available": True} for s in slots]
     return {"doctor_id": doctor_id, "day": day, "slot_minutes": slot_minutes, "slots": out}
- 
- 
+
+
 @public_router.get("/{doctor_id}/queue", response_model=QueueStatus)
 @router.get("/{doctor_id}/queue", response_model=QueueStatus)
 async def get_doctor_queue_status(doctor_id: str, db: Session = Depends(get_db)):
@@ -1134,8 +1150,8 @@ async def get_doctor_queue_status(doctor_id: str, db: Session = Depends(get_db))
         completed_patients=completed_tokens, estimated_wait_time=pending_tokens * 3,
         people_ahead=pending_tokens, total_queue=total_in_queue, total_patients=total_in_queue,
     )
- 
- 
+
+
 @public_router.get("/{doctor_id}/availability/today")
 @router.get("/{doctor_id}/availability/today")
 async def get_doctor_availability_today(doctor_id: str, db: Session = Depends(get_db)):
@@ -1158,8 +1174,8 @@ async def get_doctor_availability_today(doctor_id: str, db: Session = Depends(ge
         "today_window": f"{start_time}-{end_time}" if start_time and end_time else None,
         "status": doctor.status, "available_days": doctor.available_days or [],
     }
- 
- 
+
+
 @public_router.get("/{doctor_id}/availability")
 @router.get("/{doctor_id}/availability")
 async def get_doctor_availability(doctor_id: str, db: Session = Depends(get_db)):
@@ -1171,8 +1187,8 @@ async def get_doctor_availability(doctor_id: str, db: Session = Depends(get_db))
         "available_days": doctor.available_days or [],
         "start_time": doctor.start_time, "end_time": doctor.end_time,
     }
- 
- 
+
+
 @public_router.get("/{doctor_id}", response_model=DoctorResponse)
 @router.get("/{doctor_id}", response_model=DoctorResponse)
 async def get_doctor(doctor_id: str, db: Session = Depends(get_db)):
@@ -1188,8 +1204,8 @@ async def get_doctor(doctor_id: str, db: Session = Depends(get_db)):
         avatar_initials=doctor.avatar_initials, rating=doctor.rating,
         review_count=doctor.review_count,
     )
- 
- 
+
+
 # ---------------------------------------------------------------------------
 # Helper to avoid repeating 15-field dict literals everywhere
 # ---------------------------------------------------------------------------
