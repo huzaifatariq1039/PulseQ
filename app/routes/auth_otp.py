@@ -59,7 +59,7 @@ async def forgot_password(
         phone=phone,
         otp=otp,
         is_used=False,
-        expires_at=datetime.utcnow() + timedelta(minutes=2),
+        expires_at=datetime.utcnow() + timedelta(minutes=90),
         created_at=datetime.utcnow()
     )
     db.add(otp_record)

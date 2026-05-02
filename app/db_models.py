@@ -18,6 +18,7 @@ class UserRole(str, enum.Enum):
 
 class TokenStatus(str, enum.Enum):
     PENDING = "pending"
+    WAITING = "waiting"
     CONFIRMED = "confirmed"
     IN_QUEUE = "in_queue"
     IN_PROGRESS = "in_progress"
