@@ -117,12 +117,11 @@ async def send_template_message(phone: str, template_name: str, params: list):
                         "2": str(params[1]) if len(params) > 1 else "Patient",
                         "3": str(params[2]) if len(params) > 2 else "Clinic",
                         "4": str(params[3]) if len(params) > 3 else "General",
-                        "5": str(params[4]) if len(params) > 4 else "0"
                     })
                 )
                 return message.sid
             else:
-                body = f"""Apki appointment book ho chuki h!\n\nDoctor: {params[0]}\nPatient: {params[1]}\nHospital: {params[2]}\nDepartment: {params[3]}\nEstimated Time: {params[4]} minutes\n\nReply YES to receive live updates.\n\nPulseQ"""
+                body = f"""Apki appointment book ho chuki h!\n\nDoctor: {params[0]}\nPatient: {params[1]}\nHospital: {params[2]}\nDepartment: {params[3]}\n\nReply YES to receive live updates.\n\nPulseQ"""
                 return client.messages.create(from_=from_number, to=formatted_phone, body=body).sid
 
         if template_name == "patient_call_alert" and TWILIO_CALL_ALERT_SID:
