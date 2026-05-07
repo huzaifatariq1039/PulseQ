@@ -11,6 +11,7 @@ from app.config import (
     QUEUE_SMART_NOTIFY_WAIT_THRESHOLD_MINUTES,
 )
 from app.database import get_db
+from app.logger import get_logger
 from app.services.notification_service import NotificationService
 from app.services.whatsapp_service import send_template_message
 from app.templates import TEMPLATES
@@ -18,6 +19,8 @@ from app.db_models import Token, Doctor
 from app.utils.date_utils import to_dt
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
+
+logger = get_logger(__name__)
 
 
 def get_current_hour() -> int:
@@ -784,7 +787,7 @@ class QueueManagementService:
                 if phone:
                     await send_template_message(phone, tpl, [])
             except Exception as e:
-                print(f"[ERROR] Failed to send thankyou message in queue service: {e}")
+                logger.error(f"Failed to send thankyou message in queue service: {e}")
 
         await QueueManagementService.recalculate_for_doctor(doctor_id=doctor_id, hospital_id=hospital_id, reason="completed")
         # Auto-call next

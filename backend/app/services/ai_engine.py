@@ -4,6 +4,9 @@ import types
 import pickle
 import pandas as pd
 import numpy as np
+from app.logger import get_logger
+
+logger = get_logger(__name__)
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 # Point to the actual models folder and correct filenames
@@ -65,7 +68,7 @@ class AIEngine:
         with open(ENCODER_PATH, "rb") as f:
             self.encoders = pickle.load(f)
 
-        print("AI Model Loaded Successfully")
+        logger.info("AI Model loaded successfully")
 
     def _safe_encode(self, column, value):
         encoder = self.encoders.get(column)
@@ -148,7 +151,7 @@ class AIEngine:
         # Ensure all expected features are present
         missing = set(self.expected_features) - set(features.keys())
         if missing:
-            print(f"[ERROR] AI Engine: Missing features: {missing}")
+            logger.error(f"AI Engine: Missing features: {missing}")
             raise ValueError(f"Missing required features: {', '.join(sorted(missing))}")
         
         try:
@@ -163,7 +166,7 @@ class AIEngine:
                 raise ValueError("Model object has no 'predict' method")
             
         except Exception as e:
-            print(f"❌ AI MODEL predict_duration FAILED: {e}")
+            logger.error(f"AI MODEL predict_duration FAILED: {e}")
             import traceback
             traceback.print_exc()
             raise ValueError(f"Prediction failed: {str(e)}")

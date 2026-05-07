@@ -2,10 +2,10 @@ from sqlalchemy import create_engine, text, event
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from app.config import DATABASE_URL
-import logging
+from app.logger import get_logger
 import time
 
-logger = logging.getLogger("performance.db")
+logger = get_logger(__name__)
 
 # Create base class for models
 Base = declarative_base()
@@ -71,9 +71,9 @@ def init_db():
     """
     try:
         from app import db_models  # noqa: F401  # Import models so metadata is registered
-        print("ℹ️ Database schema is managed by Alembic. Run 'alembic upgrade head' before starting the app.")
+        logger.info("Database schema is managed by Alembic. Run 'alembic upgrade head' before starting the app.")
     except Exception as e:
-        print(f"⚠️ Could not load database models for Alembic metadata: {e}")
+        logger.warning(f"Could not load database models for Alembic metadata: {e}")
 
 # Legacy compatibility - MockFirestore interface for gradual migration
 class MockFirestore:
@@ -203,8 +203,8 @@ def initialize_firebase():
         engine = get_engine()
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
-        print("✅ Database connection successful")
+        logger.info("Database connection successful")
     except Exception as e:
-        print(f"❌ Database connection failed: {e}")
+        logger.error(f"Database connection failed: {e}")
         # Don't raise - let the app start even if DB is not available
-        print("⚠️ Continuing without database - will retry on first request")
+        logger.warning("Continuing without database - will retry on first request")

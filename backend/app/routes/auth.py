@@ -14,10 +14,13 @@ from app.security import (
     get_current_active_user,
 )
 from app.database import get_db_session
+from app.logger import get_logger
 from app.config import ACCESS_TOKEN_EXPIRE_MINUTES
 from datetime import datetime
 import uuid
 from app.db_models import User as UserDB
+
+logger = get_logger(__name__)
 
 router = APIRouter()
 
@@ -63,7 +66,7 @@ def _normalize_phone(phone: str) -> str:
 # ---------------- Login helpers ----------------
 async def _authenticate_user(login_data: LoginRequest, db: Session):
     """Internal helper to authenticate user and return user object"""
-    print(f"[DEBUG] Authentication attempt: {login_data.identifier}")
+    logger.debug(f"Authentication attempt: {login_data.identifier}")
     
     # Find user by email or phone
     user = None
@@ -81,7 +84,7 @@ async def _authenticate_user(login_data: LoginRequest, db: Session):
         ).first()
     
     if not user:
-        print(f"[ERROR] User not found: {login_data.identifier}")
+        logger.error(f"User not found: {login_data.identifier}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials"
@@ -91,14 +94,14 @@ async def _authenticate_user(login_data: LoginRequest, db: Session):
     try:
         password_valid = verify_password(login_data.password, user.password_hash)
     except Exception as pwd_error:
-        print(f"[ERROR] Password verification error: {str(pwd_error)}")
+        logger.error(f"Password verification error: {str(pwd_error)}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials"
         )
     
     if not password_valid:
-        print(f"[ERROR] Invalid password for user: {user.id}")
+        logger.error(f"Invalid password for user: {user.id}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials"
@@ -143,7 +146,7 @@ def create_activity_log_sync(user_id: str, activity_type: str, description: str,
         db.commit()
         db.close()
     except Exception as e:
-        print(f"[ERROR] Failed to create activity log: {e}")
+        logger.error(f"Failed to create activity log: {e}")
 
 @router.get("/check-phone/{phone}")
 async def check_phone_exists(phone: str):
@@ -175,7 +178,7 @@ async def register_user(user: UserCreate):
     """Register a new user with phone or email authentication"""
     db = get_db_session()
     try:
-        print(f"[DEBUG] Starting registration for: {user.email or user.phone}")
+        logger.debug(f"Starting registration for: {user.email or user.phone}")
         
         # Validate required fields based on auth method
         if user.auth_method == AuthMethod.PHONE and not user.phone:
@@ -249,8 +252,8 @@ async def register_user(user: UserCreate):
         db.add(new_user)
         db.commit()
         db.refresh(new_user)
-        
-        print(f"[DEBUG] User created successfully: {user_id}")
+
+        logger.info(f"User created successfully: {user_id}")
         
         # Create activity log
         create_activity_log_sync(
@@ -286,7 +289,7 @@ async def register_user(user: UserCreate):
     except IntegrityError as e:
         db.rollback()
         error_msg = str(e.orig)
-        print(f"[ERROR] Registration IntegrityError: {error_msg}")
+        logger.error(f"Registration IntegrityError: {error_msg}")
         
         # Handle common unique constraint violations
         if "users_phone_key" in error_msg:
@@ -306,9 +309,8 @@ async def register_user(user: UserCreate):
             )
     except Exception as e:
         db.rollback()
-        print(f"[ERROR] Registration failed: {str(e)}")
-        import traceback
-        print(traceback.format_exc())
+        logger.error(f"Registration failed: {str(e)}")
+        logger.error(f"Traceback: {__import__('traceback').format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Registration failed: {str(e)}"

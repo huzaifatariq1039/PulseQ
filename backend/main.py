@@ -14,6 +14,7 @@ from app.database import initialize_firebase
 from app.config_env import WEB_BASE_URL, MOBILE_BASE_URL, EXTRA_CORS_ORIGINS
 from app.utils.responses import fail
 from app.exceptions import PulseQException
+from app.logger import get_logger
 from app.services.ai_engine import ai_engine
 from app.services.queue_management_service import QueueManagementService
 from app.config import QUEUE_AUTOSKIP_INTERVAL_SECONDS
@@ -57,28 +58,29 @@ _extra = EXTRA_CORS_ORIGINS or []
 if not (_allowed_origins or _default_origins or _extra):
     _allowed_origins = ["*"]
 cors_origins = _allowed_origins or (_default_origins + _extra)
+
+# Initialize logger for main module
+logger = get_logger(__name__)
  
  
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("🚀 Starting PulseQ Backend...")
-    print(f"📁 Working Directory: {os.getcwd()}")
-    print(f"🔧 Debug Mode: {DEBUG}")
-    print(f"🌐 Allowed Origins: {cors_origins}")
- 
+    logger.info("🚀 Starting PulseQ Backend...")
+    logger.info(f"📁 Working Directory: {os.getcwd()}")
+    logger.info(f"🔧 Debug Mode: {DEBUG}")
+    logger.info(f"🌐 Allowed Origins: {cors_origins}")
+
     autoskip_task: asyncio.Task | None = None
     pos_sync_task: asyncio.Task | None = None
- 
+
     try:
         initialize_firebase()
-        print("✅ Database connection initialized successfully!")
+        logger.info("✅ Database connection initialized successfully!")
     except Exception as e:
-        print(f"⚠️ Database initialization warning: {e}")
-        print("⚠️ Continuing without database - some features may not work")
- 
-    print("✨ Backend started successfully!")
- 
-    async def _autoskip_worker():
+        logger.warning(f"⚠️ Database initialization warning: {e}")
+        logger.warning("⚠️ Continuing without database - some features may not work")
+
+    logger.info("✨ Backend started successfully!")
         interval = max(15, int(QUEUE_AUTOSKIP_INTERVAL_SECONDS or 60))
         while True:
             try:
@@ -89,33 +91,25 @@ async def lifespan(app: FastAPI):
  
     try:
         autoskip_task = asyncio.create_task(_autoskip_worker())
-        print(f"Auto-skip worker started (interval={int(QUEUE_AUTOSKIP_INTERVAL_SECONDS)}s)")
+        logger.info(f"Auto-skip worker started (interval={int(QUEUE_AUTOSKIP_INTERVAL_SECONDS)}s)")
         pos_sync_task = asyncio.create_task(sync_pos_to_postgres())
-        print("Go POS background sync worker started (5min interval)")
+        logger.info("Go POS background sync worker started (5min interval)")
     except Exception as e:
-        print(f"Background worker failed to start: {e}")
- 
+        logger.error(f"Background worker failed to start: {e}")
+
     try:
         start_scheduler()
-        print("APScheduler started")
+        logger.info("APScheduler started")
     except Exception as e:
-        print(f"APScheduler failed to start: {e}")
- 
+        logger.error(f"APScheduler failed to start: {e}")
+
     try:
         ai_engine.load()
-        print("AI Engine model loaded successfully!")
+        logger.info("AI Engine model loaded successfully!")
     except Exception as e:
-        print(f"AI Engine failed to load: {e}")
+        logger.error(f"AI Engine failed to load: {e}")
  
-    yield
- 
-    print("Shutting down Smart Token Backend...")
-    try:
-        if autoskip_task:
-            autoskip_task.cancel()
-        if pos_sync_task:
-            pos_sync_task.cancel()
-    except Exception:
+    logger.info("Shutting down Smart Token Backend...")
         pass
  
     try:
@@ -206,10 +200,9 @@ async def health_head():
 async def startup_event():
     try:
         ai_engine.load()
-        print("AI Engine model loaded successfully (startup event)")
+        logger.info("AI Engine model loaded successfully (startup event)")
     except Exception as e:
-        print(f"AI Engine failed to load on startup event: {e}")
- 
+        logger.error(f"AI Engine failed to load on startup event: {e}") 
  
 @app.get("/ping")
 async def health_check():
