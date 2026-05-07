@@ -49,12 +49,14 @@ def create_access_token(data: dict, expires_delta: timedelta = None):
         raise RuntimeError("SECRET_KEY is not configured")
     to_encode = data.copy()
 
+    now = int(datetime.utcnow().timestamp())
     expire = datetime.utcnow() + (
         expires_delta if expires_delta
         else timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     )
 
-    to_encode.update({"exp": expire})
+    # Include standard JWT claims: exp (expiration) and iat (issued at)
+    to_encode.update({"exp": expire, "iat": now})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
@@ -65,8 +67,12 @@ def create_refresh_token(data: dict):
     expire = datetime.utcnow() + timedelta(days=int(REFRESH_TOKEN_EXPIRE_DAYS or 7))
 
     to_encode = data.copy()
+    now = int(datetime.utcnow().timestamp())
+
+    # Include standard JWT claims: exp (expiration), iat (issued at), and token type
     to_encode.update({
         "exp": expire,
+        "iat": now,
         "type": "refresh"
     })
 

@@ -8,10 +8,11 @@ import os
 import asyncio
 import time
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.config import PROJECT_NAME, DEBUG
 from app.database import initialize_firebase
-from app.config_env import WEB_BASE_URL, MOBILE_BASE_URL, EXTRA_CORS_ORIGINS
+from app.config_env import WEB_BASE_URL, MOBILE_BASE_URL, EXTRA_CORS_ORIGINS, TRUSTED_HOSTS
 from app.utils.responses import fail
 from app.exceptions import PulseQException
 from app.logger import get_logger
@@ -137,6 +138,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Apply TrustedHostMiddleware when configured via environment variable
+# TRUSTED_HOSTS should be a comma-separated list of allowed hosts (e.g. example.com,api.example.com)
+if TRUSTED_HOSTS:
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=TRUSTED_HOSTS)
+    logger.info(f"Trusted hosts configured: {TRUSTED_HOSTS}")
+else:
+    logger.info("TrustedHostMiddleware not configured (TRUSTED_HOSTS empty). Skipping.")
  
 # 1. Core & System
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Core Authentication"])
