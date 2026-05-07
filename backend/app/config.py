@@ -102,3 +102,13 @@ TWILIO_OTP_SID = os.getenv("TWILIO_OTP_SID")  # ✅ ADD THIS
 POS_SYSTEM_BASE_URL = os.getenv("POS_SYSTEM_BASE_URL", "http://localhost:5000")
 POS_SYSTEM_API_KEY = os.getenv("POS_SYSTEM_API_KEY", "")
 POS_WEBHOOK_SECRET = os.getenv("POS_WEBHOOK_SECRET", "")
+
+# Cloudflare R2 / S3-compatible storage configuration
+# Used by app.services.storage_service
+AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID", "")
+AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "")
+# R2 endpoint (e.g. https://<account_id>.r2.cloudflarestorage.com)
+R2_ENDPOINT_URL = os.getenv("R2_ENDPOINT_URL", "").strip()
+R2_BUCKET_NAME = os.getenv("R2_BUCKET_NAME", "").strip()
+# Optional region for boto3 client (R2 can work with any region string)
+R2_REGION = os.getenv("R2_REGION", "us-east-1").strip()

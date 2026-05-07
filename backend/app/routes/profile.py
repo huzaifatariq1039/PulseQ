@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.db_models import User, Doctor, Hospital, Token, ActivityLog
 from app.security import get_current_active_user, get_password_hash, verify_password
 from app.services.token_service import SmartTokenService
+from app.services.storage_service import upload_bytes
 from datetime import datetime
 import uuid
 import base64
@@ -165,8 +166,10 @@ _ALLOWED_MIME = {"image/png", "image/jpeg", "image/jpg", "image/webp", "image/sv
 def _save_avatar(db: Session, user_id: str, mime: str, data_b64: str):
     user = db.query(User).filter(User.id == user_id).first()
     if user:
+        # When storing via object storage, the avatar is kept as a public URL in `avatar_url`.
+        # This helper is retained for backward compatibility when base64 is used.
         user.avatar_mime = mime
-        user.avatar_b64 = data_b64
+        user.avatar_b64 = data_b64 if hasattr(user, 'avatar_b64') else None
         user.avatar_updated_at = datetime.utcnow()
         user.updated_at = datetime.utcnow()
         db.commit()
@@ -189,9 +192,20 @@ async def upload_avatar_file(
     if len(data) > _MAX_AVATAR_BYTES:
         raise HTTPException(status_code=400, detail="Avatar too large")
     
-    b64 = base64.b64encode(data).decode("utf-8")
-    _save_avatar(db, current_user.user_id, mime, b64)
-    return {"message": "Avatar uploaded successfully", "mime": mime, "size": len(data)}
+    # Upload to object storage and save public URL
+    file_ext = "png" if mime == "image/png" else ("jpg" if mime == "image/jpeg" else "webp")
+    key = f"avatars/{current_user.user_id}/{uuid.uuid4()}.{file_ext}"
+    public_url = upload_bytes(key, data, content_type=mime)
+
+    user = db.query(User).filter(User.id == current_user.user_id).first()
+    if user:
+        user.avatar_url = public_url
+        user.avatar_mime = mime
+        user.avatar_updated_at = datetime.utcnow()
+        user.updated_at = datetime.utcnow()
+        db.commit()
+
+    return {"message": "Avatar uploaded successfully", "mime": mime, "size": len(data), "avatar_url": public_url}
 
 @router.post("/avatar/upload-base64")
 async def upload_avatar_base64(
@@ -228,8 +242,20 @@ async def upload_avatar_base64(
     if len(raw) > _MAX_AVATAR_BYTES:
         raise HTTPException(status_code=400, detail="Avatar too large")
         
-    _save_avatar(db, current_user.user_id, mime, data_b64)
-    return {"message": "Avatar saved", "mime": mime, "size": len(raw)}
+    # Upload decoded bytes to storage and save public URL
+    file_ext = "png" if mime == "image/png" else ("jpg" if mime == "image/jpeg" else "webp")
+    key = f"avatars/{current_user.user_id}/{uuid.uuid4()}.{file_ext}"
+    public_url = upload_bytes(key, raw, content_type=mime)
+
+    user = db.query(User).filter(User.id == current_user.user_id).first()
+    if user:
+        user.avatar_url = public_url
+        user.avatar_mime = mime
+        user.avatar_updated_at = datetime.utcnow()
+        user.updated_at = datetime.utcnow()
+        db.commit()
+
+    return {"message": "Avatar saved", "mime": mime, "size": len(raw), "avatar_url": public_url}
 
 @router.get("/avatar")
 async def get_avatar(
@@ -238,14 +264,20 @@ async def get_avatar(
 ):
     """Return the user's avatar image bytes from PostgreSQL"""
     user = db.query(User).filter(User.id == current_user.user_id).first()
-    if not user or not user.avatar_b64:
+    # If avatar_url is present, redirect to the public object URL.
+    if user and getattr(user, 'avatar_url', None):
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=user.avatar_url)
+
+    # Fallback to legacy base64 field if present
+    if not user or not getattr(user, 'avatar_b64', None):
         raise HTTPException(status_code=404, detail="Avatar not set")
-    
+
     try:
         raw = base64.b64decode(user.avatar_b64)
     except Exception:
         raise HTTPException(status_code=500, detail="Invalid data")
-    
+
     return Response(content=raw, media_type=user.avatar_mime)
 
 @router.delete("/avatar")
@@ -256,8 +288,11 @@ async def delete_avatar(
     """Remove user's avatar in PostgreSQL"""
     user = db.query(User).filter(User.id == current_user.user_id).first()
     if user:
+        # Remove stored avatar URL and legacy base64 fields
+        user.avatar_url = None
         user.avatar_mime = None
-        user.avatar_b64 = None
+        if hasattr(user, 'avatar_b64'):
+            user.avatar_b64 = None
         user.avatar_updated_at = datetime.utcnow()
         user.updated_at = datetime.utcnow()
         db.commit()

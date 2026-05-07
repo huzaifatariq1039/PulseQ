@@ -71,6 +71,10 @@ class User(Base):
     mrn_by_hospital = Column(JSON, default=dict) # Added for MRN tracking
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True) # Added index for user reporting
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    # Avatar stored as public URL (Cloudflare R2 or other S3-compatible storage)
+    avatar_url = Column(String(500), nullable=True)
+    avatar_mime = Column(String(100), nullable=True)
+    avatar_updated_at = Column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     tokens = relationship("Token", back_populates="patient")
