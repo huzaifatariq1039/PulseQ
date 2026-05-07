@@ -87,14 +87,18 @@ class RefundStatus(str, Enum):
 
 # Base Models
 class UserBase(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     name: str = Field(..., min_length=2, max_length=100)
-    email: Optional[str] = None
-    phone: Optional[str] = None
+    email: Optional[str] = Field(None, pattern=r'^[^\s@]+@[^\s@]+\.[^\s@]+$|^$', description='Valid email format or empty')
+    phone: Optional[str] = Field(None, pattern=r'^[+]?[\d\s\-()]+$', min_length=10, description='Valid phone format with international support')
     role: UserRole = UserRole.PATIENT
     hospital_id: Optional[str] = None # For receptionists/staff
     location_access: bool = False
 
 class UserCreate(UserBase):
+    model_config = ConfigDict(extra='forbid')
+    
     password: str = Field(..., min_length=6)
     auth_method: AuthMethod = AuthMethod.PHONE
     # Optional profile details at signup
@@ -114,6 +118,8 @@ class UserCreate(UserBase):
         return values
 
 class UserResponse(UserBase):
+    model_config = ConfigDict(extra='forbid')
+    
     id: str
     date_of_birth: Optional[str] = None
     address: Optional[str] = None
@@ -126,27 +132,37 @@ class UserResponse(UserBase):
     updated_at: datetime
 
 class LoginRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     identifier: str = Field(..., description="Phone number or email")
     password: str
     auth_method: AuthMethod = AuthMethod.PHONE
     location_access: bool = False
 
 class LocationUpdate(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     location_access: bool
 
 # Authentication Models
 class Token(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     access_token: str
     refresh_token: Optional[str] = None
     token_type: str
 
 class TokenData(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     user_id: Optional[str] = None
     role: Optional[str] = None
     hospital_id: Optional[str] = None
 
 # Dashboard Models
 class UserStatistics(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     total_tokens: int = 0
     active_tokens: int = 0
     completed_appointments: int = 0
@@ -154,6 +170,8 @@ class UserStatistics(BaseModel):
     pending_payments: int = 0
 
 class ActivityLog(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     id: str
     user_id: str
     activity_type: ActivityType
@@ -162,11 +180,15 @@ class ActivityLog(BaseModel):
     created_at: datetime
 
 class ActivityLogCreate(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     activity_type: ActivityType
     description: str
     metadata: Optional[dict] = None
 
 class QuickAction(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     id: str
     user_id: str
     action_type: str
@@ -178,6 +200,8 @@ class QuickAction(BaseModel):
     created_at: datetime
 
 class QuickActionCreate(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     action_type: str
     title: str
     description: str
@@ -186,6 +210,8 @@ class QuickActionCreate(BaseModel):
     is_enabled: bool = True
 
 class DashboardData(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     user: UserResponse
     statistics: UserStatistics
     recent_activities: List[ActivityLog]
@@ -194,12 +220,14 @@ class DashboardData(BaseModel):
 
 # Hospital Models
 class HospitalBase(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     name: str = Field(..., min_length=2, max_length=200)
     address: str
     city: str
     state: str
-    phone: str
-    email: Optional[str] = None
+    phone: str = Field(..., pattern=r'^[+]?[\d\s\-()]+$', min_length=10, description='Valid phone format with international support')
+    email: Optional[str] = Field(None, pattern=r'^[^\s@]+@[^\s@]+\.[^\s@]+$|^$', description='Valid email format or empty')
     rating: Optional[float] = Field(None, ge=0, le=5)
     review_count: int = 0
     status: HospitalStatus = HospitalStatus.OPEN
@@ -226,6 +254,8 @@ class HospitalResponse(HospitalBase):
 
 # Lightweight public-facing hospital item for unified search (DB + external)
 class HospitalLite(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     id: str
     name: str
     address: Optional[str] = None  # For external sources we may only have a string
@@ -245,7 +275,7 @@ class HospitalLite(BaseModel):
 
 # Doctor Models
 class DoctorBase(BaseModel):
-    model_config = ConfigDict(populate_by_name=True, extra="allow")
+    model_config = ConfigDict(populate_by_name=True, extra='forbid')
 
     name: str = Field(..., min_length=2, max_length=100)
     # Firestore field in your DB is `department`. We keep internal field name
@@ -321,27 +351,33 @@ class DoctorBase(BaseModel):
         return self
 
 class DoctorCreate(DoctorBase):
-    email: str = Field(..., description="Doctor email for login")
+    email: str = Field(..., pattern=r'^[^\s@]+@[^\s@]+\.[^\s@]+$', description="Doctor email for login")
     password: str = Field(..., min_length=6, description="Doctor password for login")
-    pass
+    phone: str = Field(..., pattern=r'^[+]?[\d\s\-()]+$', min_length=10, description='Valid phone format with international support')
 
 class DoctorResponse(DoctorBase):
     id: str
     user_id: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+    
+    model_config = ConfigDict(extra='forbid')
 
 
 # Receptionist Models
 class ReceptionistCreate(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     name: str = Field(..., min_length=2, max_length=100)
-    email: str = Field(..., description="Receptionist email for login")
+    email: str = Field(..., pattern=r'^[^\s@]+@[^\s@]+\.[^\s@]+$', description="Receptionist email for login")
     password: str = Field(..., min_length=6, description="Receptionist password for login")
-    phone: str
+    phone: str = Field(..., pattern=r'^[+]?[\d\s\-()]+$', min_length=10)
     hospital_id: str
     pass
 
 class ReceptionistResponse(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     id: str
     name: str
     email: str
@@ -355,6 +391,8 @@ class ReceptionistResponse(BaseModel):
 
 # Queue Models
 class QueueStatus(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     doctor_id: str
     current_token: Optional[int] = None
     pending_patients: int = 0
@@ -366,6 +404,8 @@ class QueueStatus(BaseModel):
     total_patients: int = 0 # alias for total_queue
 
 class QueueResponse(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     doctor_id: str
     current_token: int = Field(..., ge=0)
     total_patients: int = Field(..., ge=0)
@@ -379,6 +419,8 @@ class QueueResponse(BaseModel):
     updated_at: datetime
 
 class TokenCancellationRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     reason: CancellationReason
     custom_reason: Optional[str] = None  # For OTHER_REASON
     refund_method: RefundMethod = RefundMethod.ORIGINAL_PAYMENT
@@ -449,12 +491,16 @@ class TokenCancellationRequest(BaseModel):
             return CancellationReason.SCHEDULE_CONFLICT
 
 class NotificationRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     token_id: str
     notification_types: List[NotificationType]
     message: str
     phone_number: str
 
 class RefundCalculation(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     original_amount: float
     processing_fee_percentage: float = 5.0
     processing_fee_amount: float
@@ -463,6 +509,8 @@ class RefundCalculation(BaseModel):
     processing_time_days: str = "3-5 business days"
 
 class RefundResponse(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     id: str
     token_id: str
     original_amount: float
@@ -475,6 +523,8 @@ class RefundResponse(BaseModel):
     updated_at: datetime
 
 class CancellationResponse(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     message: str
     token_id: str
     cancellation_reason: CancellationReason
@@ -483,11 +533,15 @@ class CancellationResponse(BaseModel):
 
 # Doctor with Queue Info
 class DoctorWithQueue(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     doctor: DoctorResponse
     queue: QueueStatus
 
 # SmartToken Models
 class SmartTokenCreate(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     patient_id: str
     doctor_id: str
     hospital_id: str
@@ -495,6 +549,8 @@ class SmartTokenCreate(BaseModel):
     department: Optional[str] = None
 
 class SmartTokenGenerateRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     doctor_id: str
     hospital_id: str
     patient_name: Optional[str] = None    # ✅ must exist
@@ -507,6 +563,8 @@ class SmartTokenGenerateRequest(BaseModel):
     consultation_notes: Optional[str] = None
 
 class SmartTokenResponse(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     id: str
     patient_id: str
     doctor_id: str
@@ -553,11 +611,15 @@ class SmartTokenResponse(BaseModel):
 
 # Payment Models
 class PaymentProcess(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     token_id: str
     amount: float
     method: PaymentMethod
 
 class PaymentResponse(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     id: str
     token_id: str
     amount: float
@@ -568,6 +630,8 @@ class PaymentResponse(BaseModel):
     updated_at: datetime
 
 class PaymentCreate(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     token_id: str
     amount: float
     payment_method: PaymentMethod
@@ -576,10 +640,14 @@ class PaymentCreate(BaseModel):
 
 # Payment Method Models
 class PaymentMethodRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     method: PaymentMethod
     payment_type: Optional[PaymentType] = None
 
 class CardPaymentRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     card_number: str = Field(..., min_length=13, max_length=19)
     expiry_month: str = Field(..., min_length=2, max_length=2)
     expiry_year: str = Field(..., min_length=2, max_length=2)
@@ -590,11 +658,15 @@ class CardPaymentRequest(BaseModel):
     bank_name: Optional[str] = None
 
 class EasyPaisaPaymentRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     phone_number: str = Field(..., min_length=11, max_length=15)
     otp: Optional[str] = None
 
 # Appointment Summary Models
 class AppointmentSummary(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     doctor: DoctorResponse
     hospital: HospitalResponse
     consultation_fee: float
@@ -602,6 +674,8 @@ class AppointmentSummary(BaseModel):
     appointment_date: datetime
 
 class PaymentConfirmationRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     token_id: str
     payment_method: PaymentMethod
     payment_type: Optional[PaymentType] = None
@@ -651,6 +725,8 @@ class PaymentConfirmationRequest(BaseModel):
         return data
 
 class PaymentConfirmationResponse(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     token_id: str
     payment_id: str
     status: PaymentStatus
@@ -660,6 +736,8 @@ class PaymentConfirmationResponse(BaseModel):
 
 # Profile Models
 class ProfileUpdate(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     name: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
@@ -670,6 +748,8 @@ class ProfileUpdate(BaseModel):
     location: Optional[str] = None
 
 class AppointmentHistory(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     id: str
     doctor_name: str
     doctor_specialization: str
@@ -680,6 +760,8 @@ class AppointmentHistory(BaseModel):
     token_number: str
 
 class NotificationSettings(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     queue_updates: bool = True
     appointment_reminders: bool = True
     emergency_alerts: bool = True
@@ -692,15 +774,21 @@ class NotificationSettings(BaseModel):
 
 # Notification Models
 class NotificationPreference(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     whatsapp_enabled: bool = True
     sms_enabled: bool = True
     phone_number: str = Field(..., min_length=11, max_length=15)
 
 class NotificationPreferenceUpdate(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     whatsapp_enabled: bool = True
     sms_enabled: bool = True
 
 class NotificationPreferenceResponse(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     id: str
     user_id: str
     whatsapp_enabled: bool
@@ -711,6 +799,8 @@ class NotificationPreferenceResponse(BaseModel):
     updated_at: datetime
 
 class PaymentMethodInfo(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     id: str
     user_id: str
     method_type: str  # card, easypaisa, wallet
@@ -719,6 +809,8 @@ class PaymentMethodInfo(BaseModel):
     created_at: datetime
 
 class SecuritySettings(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     two_factor_enabled: bool = False
     biometric_enabled: bool = False
     login_notifications: bool = True
@@ -726,6 +818,8 @@ class SecuritySettings(BaseModel):
 
 # Search Models
 class SearchRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     query: Optional[str] = None
     location: Optional[str] = None
     specialization: Optional[str] = None
@@ -733,24 +827,32 @@ class SearchRequest(BaseModel):
     category: Optional[str] = None
 
 class SearchResult(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     hospitals: List[HospitalResponse] = []
     doctors: List[DoctorResponse] = []
     total_results: int
 
 # Hospital Search Response
 class HospitalSearchResponse(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     hospitals: List[HospitalResponse]
     total_found: int
     search_query: Optional[str] = None
 
 # Unified search response for HospitalLite items
 class HospitalUnifiedSearchResponse(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     hospitals: List[HospitalLite]
     total_found: int
     search_query: Optional[str] = None
 
 # Doctor Search Response
 class DoctorSearchResponse(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     doctors: List[DoctorWithQueue]
     total_found: int
     hospital_id: str
@@ -759,6 +861,8 @@ class DoctorSearchResponse(BaseModel):
 
 # Pharmacy Models
 class PharmacyMedicineBase(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     product_id: int = Field(..., ge=0)
     batch_no: str
     name: str
@@ -777,6 +881,8 @@ class PharmacyMedicineCreate(PharmacyMedicineBase):
     pass
 
 class PharmacyMedicineUpdate(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     product_id: Optional[int] = Field(None, ge=0)
     batch_no: Optional[str] = None
     name: Optional[str] = None
@@ -797,10 +903,14 @@ class PharmacyMedicineResponse(PharmacyMedicineBase):
 
 # Queue Token Status Update Model
 class QueueTokenStatusUpdate(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     status: str
 
 # Token Create Spec Model (for idempotent token creation)
 class TokenCreateSpec(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     doctor_id: str
     hospital_id: str
     appointment_date: str  # YYYY-MM-DD in clinic local timezone
@@ -813,6 +923,8 @@ class TokenCreateSpec(BaseModel):
 # ─── Rating Schemas ───────────────────────────────────────────────────────────
 
 class RatingCreate(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     token_id: str
     rating: int = Field(..., ge=1, le=5)
     review: Optional[str] = None
@@ -830,22 +942,30 @@ class RatingResponse(BaseModel):
     appointment_date: Optional[datetime] = None
     created_at: datetime
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, extra='forbid')
 
 class DoctorRatingSummary(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    
     doctor_id: str
     average_rating: float
     total_reviews: int
     ratings: List[RatingResponse] = []
 
 class ForgotPasswordRequest(BaseModel):
-    phone: str
+    model_config = ConfigDict(extra='forbid')
+    
+    phone: str = Field(..., pattern=r'^[+]?[\d\s\-()]+$', min_length=10, description='Valid phone format with international support')
 
 class VerifyOTPRequest(BaseModel):
-    phone: str
+    model_config = ConfigDict(extra='forbid')
+    
+    phone: str = Field(..., pattern=r'^[+]?[\d\s\-()]+$', min_length=10, description='Valid phone format with international support')
     otp: str
 
 class ResetPasswordRequest(BaseModel):
-    phone: str
+    model_config = ConfigDict(extra='forbid')
+    
+    phone: str = Field(..., pattern=r'^[+]?[\d\s\-()]+$', min_length=10, description='Valid phone format with international support')
     otp: str
     new_password: str
