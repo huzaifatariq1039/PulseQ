@@ -74,6 +74,15 @@ async def lifespan(app: FastAPI):
     autoskip_task: asyncio.Task | None = None
     pos_sync_task: asyncio.Task | None = None
 
+    async def _autoskip_worker():
+        interval = max(15, int(QUEUE_AUTOSKIP_INTERVAL_SECONDS or 60))
+        while True:
+            try:
+                await QueueManagementService.autoskip_cycle()
+            except Exception:
+                pass
+            await asyncio.sleep(interval)
+
     try:
         initialize_firebase()
         logger.info("✅ Database connection initialized successfully!")
@@ -82,14 +91,7 @@ async def lifespan(app: FastAPI):
         logger.warning("⚠️ Continuing without database - some features may not work")
 
     logger.info("✨ Backend started successfully!")
-        interval = max(15, int(QUEUE_AUTOSKIP_INTERVAL_SECONDS or 60))
-        while True:
-            try:
-                await QueueManagementService.autoskip_cycle()
-            except Exception:
-                pass
-            await asyncio.sleep(interval)
- 
+
     try:
         autoskip_task = asyncio.create_task(_autoskip_worker())
         logger.info(f"Auto-skip worker started (interval={int(QUEUE_AUTOSKIP_INTERVAL_SECONDS)}s)")
@@ -109,14 +111,21 @@ async def lifespan(app: FastAPI):
         logger.info("AI Engine model loaded successfully!")
     except Exception as e:
         logger.error(f"AI Engine failed to load: {e}")
- 
-    logger.info("Shutting down Smart Token Backend...")
-        pass
- 
+
     try:
-        shutdown_scheduler()
-    except Exception:
-        pass
+        yield
+    finally:
+        logger.info("Shutting down Smart Token Backend...")
+
+        if autoskip_task:
+            autoskip_task.cancel()
+        if pos_sync_task:
+            pos_sync_task.cancel()
+
+        try:
+            shutdown_scheduler()
+        except Exception:
+            pass
  
  
 # FIX 1: redirect_slashes=False prevents 301 redirects that break CORS preflight
