@@ -170,7 +170,7 @@ export class MedicineFormComponent implements OnInit {
                         });
                     } else {
                         this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Medicine not found', life: 3000 });
-                        this.router.navigate(['/inventory']);
+                        this.router.navigate(['/staff/pharmacy/inventory']);
                     }
                 },
                 error: (err) => {
@@ -221,7 +221,7 @@ export class MedicineFormComponent implements OnInit {
                     this.messageService.add({ severity: 'success', summary: 'Success', detail: 'Medicine updated successfully', life: 3000 });
                     // Update local state for immediate UI reflection
                     this.pharmacyService.update(this.medicineId!, medicineData);
-                    setTimeout(() => { this.router.navigate(['/inventory']); }, 1500);
+                    setTimeout(() => { this.router.navigate(['/staff/pharmacy/inventory']); }, 1500);
                 },
                 error: (err) => {
                     console.error('Failed to update medicine via API:', err);
@@ -251,7 +251,7 @@ export class MedicineFormComponent implements OnInit {
                     this.messageService.add({ severity: 'success', summary: 'Success', detail: 'Medicine added successfully', life: 3000 });
                     // Also update local state for immediate UI reflection if needed
                     this.pharmacyService.add(medicineData);
-                    setTimeout(() => { this.router.navigate(['/inventory']); }, 1500);
+                    setTimeout(() => { this.router.navigate(['/staff/pharmacy/inventory']); }, 1500);
                 },
                 error: (err) => {
                     console.error('Failed to add medicine via API:', err);
@@ -261,7 +261,7 @@ export class MedicineFormComponent implements OnInit {
         }
     }
 
-    onCancel(): void { this.router.navigate(['/inventory']); }
+    onCancel(): void { this.router.navigate(['/staff/pharmacy/inventory']); }
 
     formatDateForAPI(date: Date): string {
         const year = date.getFullYear();
