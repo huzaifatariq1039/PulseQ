@@ -939,6 +939,18 @@ async def update_invoice_status(
         raise HTTPException(status_code=404, detail="Invoice not found")
     return ok(data=invoice.to_dict(), message=f"Status updated to '{new_status}'")
 
+# ── DELETE /invoices/{invoice_id}/permanent ───────────────────────────────────
+# Permanently delete from Trash (hard delete)
+
+@router.delete("/invoices/{invoice_id}/permanent", dependencies=[Depends(require_roles("pharmacy", "admin"))])
+async def permanent_delete_invoice(
+    invoice_id: str,
+    db: Session = Depends(get_db),
+):
+    success = PharmacyInvoiceService.hard_delete_invoice(db=db, invoice_id=invoice_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Invoice not found in trash")
+    return ok(message="Invoice permanently deleted")
 
 # ── DELETE /invoices/{invoice_id} ─────────────────────────────────────────────
 # Soft delete → moves to Trash
@@ -968,15 +980,3 @@ async def restore_invoice(
     return ok(data=invoice.to_dict(), message="Invoice restored successfully")
 
 
-# ── DELETE /invoices/{invoice_id}/permanent ───────────────────────────────────
-# Permanently delete from Trash (hard delete)
-
-@router.delete("/invoices/{invoice_id}/permanent", dependencies=[Depends(require_roles("pharmacy", "admin"))])
-async def permanent_delete_invoice(
-    invoice_id: str,
-    db: Session = Depends(get_db),
-):
-    success = PharmacyInvoiceService.hard_delete_invoice(db=db, invoice_id=invoice_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Invoice not found in trash")
-    return ok(message="Invoice permanently deleted")
