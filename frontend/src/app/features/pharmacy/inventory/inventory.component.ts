@@ -249,9 +249,9 @@ export class InventoryComponent implements OnInit, OnDestroy {
         return map[status] ?? 'pi-circle';
     }
 
-    view(medicine: Medicine): void { this.router.navigate(['/view', medicine.id]); }
-    edit(medicine: Medicine): void { this.router.navigate(['/edit', medicine.id]); }
-    addMedicine(): void { this.router.navigate(['/add']); }
+    view(medicine: Medicine): void { this.router.navigate(['/staff/pharmacy/view', medicine.id]); }
+    edit(medicine: Medicine): void { this.router.navigate(['/staff/pharmacy/edit', medicine.id]); }
+    addMedicine(): void { this.router.navigate(['/staff/pharmacy/add']); }
 
     delete(medicine: Medicine): void {
         this.confirmationService.confirm({
