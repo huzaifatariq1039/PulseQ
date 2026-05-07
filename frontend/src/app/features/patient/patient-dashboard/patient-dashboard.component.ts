@@ -1,6 +1,6 @@
 import { Component, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { PatientHeaderComponent } from '../shared/components/patient-header/patient-header.component';
 
 import { CardModule } from 'primeng/card';
@@ -53,6 +53,7 @@ export class PatientDashboardComponent implements OnInit, OnDestroy {
   dashboardLoading = false;
 
   constructor(
+    private route: ActivatedRoute,
     private router: Router,
     private queueService: QueueService,
     private tokenService: TokenService,
@@ -186,14 +187,14 @@ export class PatientDashboardComponent implements OnInit, OnDestroy {
   }
 
   // ── Navigation ──────────────────────────────────────────────────
-  logout(): void { this.router.navigate(['/auth']); }
-  goGenerateToken(): void { this.router.navigate(['/new-token']); }
-  viewToken(): void { this.router.navigate(['/my-token']); }
+  logout(): void { this.router.navigate(['../auth'], { relativeTo: this.route }); }
+  goGenerateToken(): void { this.router.navigate(['../new-token'], { relativeTo: this.route }); }
+  viewToken(): void { this.router.navigate(['../my-token'], { relativeTo: this.route }); }
   viewSpecificToken(id?: string): void {
-    this.router.navigate(['/my-token'], id ? { queryParams: { id } } : {});
+    this.router.navigate(['../my-token'], { relativeTo: this.route, queryParams: id ? { id } : {} });
   }
-  viewLiveStatus(): void { this.router.navigate(['/live-status']); }
-  openNotifications(): void { this.router.navigate(['/notifications']); }
+  viewLiveStatus(): void { this.router.navigate(['../live-status'], { relativeTo: this.route }); }
+  openNotifications(): void { this.router.navigate(['../notifications'], { relativeTo: this.route }); }
 
   // ── Helpers ─────────────────────────────────────────────────────
   getStatusLabel(status: string): string {

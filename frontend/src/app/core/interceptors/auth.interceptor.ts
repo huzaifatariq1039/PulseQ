@@ -1,6 +1,7 @@
 import { HttpInterceptorFn } from '@angular/common/http';
 import { PLATFORM_ID, inject } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
+import { environment } from '../../../environments/environment';
 
 export const authInterceptor: HttpInterceptorFn = (req, next) => {
   const platformId = inject(PLATFORM_ID);
@@ -10,13 +11,13 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
 
   // rewrite relative /api URLs to the absolute backend URL
   if (!isBrowser && req.url.startsWith('/api')) {
-    const absoluteUrl = `https://oyster-app-notep.ondigitalocean.app${req.url}`;
+    const absoluteUrl = `${environment.apiBaseUrl}${req.url.replace('/api/v1', '')}`;
     apiReq = req.clone({ url: absoluteUrl });
   }
 
   // Only attach token to our own API calls
   const isApiRequest = apiReq.url.startsWith('/api') ||
-    apiReq.url.includes('oyster-app-notep.ondigitalocean.app');
+    apiReq.url.includes(environment.apiBaseUrl.replace('/api/v1', ''));
 
   if (!isApiRequest) {
     return next(apiReq);

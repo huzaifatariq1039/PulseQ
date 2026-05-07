@@ -1,6 +1,6 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { RouterModule, Router } from '@angular/router';
+import { RouterModule, Router, ActivatedRoute } from '@angular/router';
 import { Subscription } from 'rxjs';
 
 import { CardModule } from 'primeng/card';
@@ -32,6 +32,7 @@ export class PharmacyDashboardComponent implements OnInit {
     constructor(
         private pharmacyService: PharmacyService,
         private authService: AuthService,
+        private route: ActivatedRoute,
         private router: Router
     ) { }
 
@@ -73,10 +74,10 @@ export class PharmacyDashboardComponent implements OnInit {
     }
 
     goToInventory(): void {
-        this.router.navigate(['/inventory']);
+        this.router.navigate(['../inventory'], { relativeTo: this.route });
     }
 
     goToSales(): void {
-        this.router.navigate(['/sales']);
+        this.router.navigate(['../sales'], { relativeTo: this.route });
     }
 }

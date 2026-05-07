@@ -1,6 +1,6 @@
 import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { RouterModule, Router } from '@angular/router';
+import { RouterModule, Router, ActivatedRoute } from '@angular/router';
 import { AuthService } from '../../../../../core/services/auth.service';
 
 @Component({
@@ -13,12 +13,12 @@ import { AuthService } from '../../../../../core/services/auth.service';
 export class AdminSidebarComponent {
     sidebarOpen = false;
 
-    constructor(private router: Router, private authService: AuthService) { }
+    constructor(private route: ActivatedRoute, private router: Router, private authService: AuthService) { }
 
     signOut(): void {
         this.authService.logout();
         // route back to admin login page, mimic existing components
-        this.router.navigate(['/auth']);
+        this.router.navigate(['../auth'], { relativeTo: this.route });
     }
 
     toggleSidebar(): void {

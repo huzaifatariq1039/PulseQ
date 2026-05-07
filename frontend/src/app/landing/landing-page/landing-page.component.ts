@@ -15,6 +15,7 @@ export class LandingPageComponent {
 
   goTo(role: string) {
     const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
+    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 
     if (role === 'staff') {
       // staff page is on the same main domain build
@@ -22,8 +23,11 @@ export class LandingPageComponent {
     } else if (role === 'demo') {
       // demo has its own subdomain
       window.location.href = `${protocol}//demo.pulseq.health`;
+    } else if (isLocalhost) {
+      // Local development: use route-based navigation
+      this.router.navigate([`/${role}`]);
     } else {
-      // all portals live on their own subdomain
+      // Production: redirect to subdomain
       window.location.href = `${protocol}//${role}.pulseq.health`;
     }
   }

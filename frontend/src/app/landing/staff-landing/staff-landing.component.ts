@@ -14,8 +14,14 @@ export class StaffLandingComponent {
 
     goTo(role: string) {
         const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
+        const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 
-        // All staff portals live on their own subdomain
-        window.location.href = `${protocol}//${role}.pulseq.health`;
+        if (isLocalhost) {
+            // Local development: navigate into the staff subtree
+            this.router.navigate([`/staff/${role}`]);
+        } else {
+            // Production: redirect to subdomain
+            window.location.href = `${protocol}//${role}.pulseq.health`;
+        }
     }
 }

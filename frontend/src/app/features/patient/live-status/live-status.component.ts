@@ -2,7 +2,7 @@ import { Component, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { CardModule } from 'primeng/card';
 import { ButtonModule } from 'primeng/button';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { PatientHeaderComponent } from '../shared/components/patient-header/patient-header.component';
 import { TokenService, SmartTokenResponse } from '../../../core/services/token.service';
 import { UserProfileService, UserProfile } from '../../../core/services/user-profile.service';
@@ -41,6 +41,7 @@ export class LiveStatusComponent implements OnInit, OnDestroy {
     constructor(
         private tokenService: TokenService,
         private userProfileService: UserProfileService,
+        private route: ActivatedRoute,
         private router: Router
     ) { }
 
@@ -157,10 +158,10 @@ export class LiveStatusComponent implements OnInit, OnDestroy {
     }
 
     goToGenerate(): void {
-        this.router.navigate(['/new-token']);
+        this.router.navigate(['../new-token'], { relativeTo: this.route });
     }
 
     openNotifications(): void {
-        this.router.navigate(['/notifications']);
+        this.router.navigate(['../notifications'], { relativeTo: this.route });
     }
 }

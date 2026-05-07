@@ -1,6 +1,6 @@
 import { Component, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { RouterModule, Router } from '@angular/router';
+import { RouterModule, Router, ActivatedRoute } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { StaffPortalService } from '../../../core/services/staff-portal.service';
 import { AuthService } from '../../../core/services/auth.service';
@@ -62,6 +62,7 @@ export class DoctorRatingsComponent implements OnInit, OnDestroy {
     constructor(
         private staffService: StaffPortalService,
         private authService: AuthService,
+        private route: ActivatedRoute,
         private router: Router
     ) {
         // Initialize distribution array
@@ -233,7 +234,7 @@ export class DoctorRatingsComponent implements OnInit, OnDestroy {
     }
 
     logout(): void {
-        this.router.navigate(['/auth']);
+        this.router.navigate(['../auth'], { relativeTo: this.route });
     }
 
     ngOnDestroy(): void {

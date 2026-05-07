@@ -1,7 +1,7 @@
 import { Component, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormBuilder, FormGroup, Validators, AbstractControl, ValidationErrors } from '@angular/forms';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { PatientHeaderComponent } from '../shared/components/patient-header/patient-header.component';
 // PRIMENG
 import { ButtonModule } from 'primeng/button';
@@ -85,6 +85,7 @@ export class NewTokenComponent implements OnInit, OnDestroy {
 
     constructor(
         private fb: FormBuilder,
+        private route: ActivatedRoute,
         private router: Router,
         private messageService: MessageService,
         private queueService: QueueService,
@@ -353,7 +354,7 @@ export class NewTokenComponent implements OnInit, OnDestroy {
                     life: 4000
                 });
                 this.notificationService.sendTokenCreated(tokenNo);
-                setTimeout(() => { this.router.navigate(['/my-token']); }, 2000);
+                setTimeout(() => { this.router.navigate(['../my-token'], { relativeTo: this.route }); }, 2000);
             },
             error: (err) => {
                 console.error('Failed to generate token:', err);
@@ -382,7 +383,7 @@ export class NewTokenComponent implements OnInit, OnDestroy {
         });
     }
 
-    cancelForm(): void { this.router.navigate(['/dashboard']); }
-    openNotifications(): void { this.router.navigate(['/notifications']); }
+    cancelForm(): void { this.router.navigate(['../dashboard'], { relativeTo: this.route }); }
+    openNotifications(): void { this.router.navigate(['../notifications'], { relativeTo: this.route }); }
     nextStep(): void { if (this.step < 4) this.step++; }
 }

@@ -1,7 +1,7 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormBuilder, FormGroup, Validators } from '@angular/forms';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { CardModule } from 'primeng/card';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
@@ -25,6 +25,7 @@ export class AdminAuthComponent implements OnInit {
 
   constructor(
     private fb: FormBuilder,
+    private route: ActivatedRoute,
     private router: Router,
     private messageService: MessageService,
     private authService: AuthService
@@ -61,7 +62,7 @@ export class AdminAuthComponent implements OnInit {
             life: 2000
           });
           setTimeout(() => {
-            this.router.navigate(['/dashboard']);
+            this.router.navigate(['../dashboard'], { relativeTo: this.route });
           }, 500);
         } else {
           this.messageService.add({
@@ -85,6 +86,6 @@ export class AdminAuthComponent implements OnInit {
   }
 
   goBack() {
-    this.router.navigate(['/']);
+    this.router.navigate(['../auth'], { relativeTo: this.route });
   }
 }

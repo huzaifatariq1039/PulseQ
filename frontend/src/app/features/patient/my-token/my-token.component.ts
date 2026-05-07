@@ -293,10 +293,10 @@ export class MyTokenComponent implements OnInit, OnDestroy {
   }
 
   generateToken(): void {
-    this.router.navigate(['/new-token']);
+    this.router.navigate(['../new-token'], { relativeTo: this.route });
   }
 
   openNotifications(): void {
-    this.router.navigate(['/notifications']);
+    this.router.navigate(['../notifications'], { relativeTo: this.route });
   }
 }

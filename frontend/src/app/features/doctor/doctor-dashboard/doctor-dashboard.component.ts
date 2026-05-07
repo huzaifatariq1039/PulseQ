@@ -1,6 +1,6 @@
 import { Component, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { RouterModule, Router } from '@angular/router';
+import { RouterModule, Router, ActivatedRoute } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { CardModule } from 'primeng/card';
@@ -84,6 +84,7 @@ export class DoctorDashboardComponent implements OnInit, OnDestroy {
   private sub: Subscription | null = null;
 
   constructor(
+    private route: ActivatedRoute,
     private router: Router,
     private messageService: MessageService,
     private consultationService: ConsultationService,
@@ -452,11 +453,11 @@ export class DoctorDashboardComponent implements OnInit, OnDestroy {
 
   logout(): void {
     this.authService.logout();
-    this.router.navigate(['/']);
+    this.router.navigate(['../auth'], { relativeTo: this.route });
   }
 
   viewPreviousHistory(): void {
-    this.router.navigate(['/history']);
+    this.router.navigate(['../history'], { relativeTo: this.route });
   }
 
   ngOnDestroy(): void {
