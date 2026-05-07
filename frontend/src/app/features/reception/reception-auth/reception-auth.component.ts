@@ -1,7 +1,7 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormBuilder, FormGroup, Validators } from '@angular/forms';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 
 // PrimeNG
 import { ButtonModule } from 'primeng/button';
@@ -28,6 +28,7 @@ export class ReceptionAuthComponent implements OnInit {
   constructor(
     private fb: FormBuilder,
     private router: Router,
+    private route: ActivatedRoute,
     private messageService: MessageService,
     private authService: AuthService
   ) { }
@@ -63,7 +64,7 @@ export class ReceptionAuthComponent implements OnInit {
             life: 2000
           });
           setTimeout(() => {
-            this.router.navigate(['/dashboard']);
+            this.router.navigate(['../dashboard'], { relativeTo: this.route });
           }, 500);
         } else {
           this.messageService.add({
