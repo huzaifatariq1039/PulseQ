@@ -7,12 +7,14 @@ from typing import Optional, Dict, List, Any
 from sqlalchemy.orm import Session
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
+#from app.database import get_db
 
-from db_automation.models import (
+from app.db_models import (
     User, Hospital, Department, Doctor, Token, Queue,
     Payment, Refund, Wallet, MedicalRecord, ActivityLog,
     SupportTicket, QuickAction, IdempotencyRecord,
     HospitalSequence, PharmacyMedicine, PharmacySale,
+    PharmacyInvoice, PharmacyInvoiceItem,
 )
 
 logger = logging.getLogger(__name__)
@@ -516,11 +518,11 @@ class TokenService:
                 return False
             db.delete(token)
             db.commit()
-            logger.info(f"🗑️ Deleted token: {token_id}")
+            logger.info(f"Deleted token: {token_id}")
             return True
         except Exception as e:
             db.rollback()
-            logger.error(f"❌ Failed to delete token {token_id}: {e}")
+            logger.error(f"Failed to delete token {token_id}: {e}")
             raise
 
 
@@ -1621,4 +1623,381 @@ class AsyncActivityLogService:
         except Exception as e:
             await db.rollback()
             logger.error(f"❌ [ASYNC] Failed to log activity: {e}")
+            raise
+    # ═══════════════════════════════════════════════════════════
+#  PHARMACY INVOICE SERVICE
+# ═══════════════════════════════════════════════════════════
+# Add this import at the top of services.py alongside the existing imports:
+# from db_automation.models import (..., PharmacyInvoice, PharmacyInvoiceItem)
+
+from datetime import date as _date
+
+
+def _generate_invoice_number(db: Session, hospital_id: Optional[str] = None) -> str:
+    """
+    Generates invoice numbers in the format: INV-YYYYMMDD-XXXX
+    e.g. INV-20260506-0009
+    Scoped per hospital_id if provided, otherwise global.
+    """
+    today = _date.today().strftime("%Y%m%d")
+    prefix = f"INV-{today}-"
+
+    query = db.query(PharmacyInvoice).filter(
+        PharmacyInvoice.invoice_number.like(f"{prefix}%")
+    )
+    if hospital_id:
+        query = query.filter(PharmacyInvoice.hospital_id == hospital_id)
+
+    count = query.count()
+    return f"{prefix}{str(count + 1).zfill(4)}"
+
+
+class PharmacyInvoiceService:
+    """Synchronous CRUD for pharmacy_invoices and pharmacy_invoice_items."""
+
+    # ── CREATE ────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def create_invoice(
+        db: Session,
+        customer_name: str = "Walk in customer",
+        customer_id: Optional[str] = None,
+        payment_method: str = "cash",
+        status: str = "pending",
+        subtotal: float = 0.0,
+        discount: float = 0.0,
+        discount_percent: float = 0.0,
+        tax: float = 0.0,
+        total: float = 0.0,
+        amount_paid: float = 0.0,
+        balance_due: float = 0.0,
+        notes: Optional[str] = None,
+        hospital_id: Optional[str] = None,
+        created_by: Optional[str] = None,
+        items: Optional[List[Dict[str, Any]]] = None,
+    ) -> "PharmacyInvoice":
+        try:
+            invoice = PharmacyInvoice(
+                invoice_number=_generate_invoice_number(db, hospital_id),
+                customer_id=customer_id,
+                customer_name=customer_name,
+                payment_method=payment_method,
+                status=status,
+                subtotal=subtotal,
+                discount=discount,
+                discount_percent=discount_percent,
+                tax=tax,
+                total=total,
+                amount_paid=amount_paid,
+                balance_due=balance_due,
+                notes=notes,
+                hospital_id=hospital_id,
+                created_by=created_by,
+            )
+            db.add(invoice)
+            db.flush()  # get invoice.id before inserting items
+
+            for item_data in (items or []):
+                item = PharmacyInvoiceItem(
+                    invoice_id=invoice.id,
+                    medicine_id=item_data.get("medicine_id"),
+                    product_id=item_data.get("product_id"),
+                    product_name=item_data.get("product_name", ""),
+                    product_code=item_data.get("product_code"),
+                    quantity=item_data.get("quantity", 1),
+                    unit_price=item_data.get("unit_price", 0.0),
+                    discount=item_data.get("discount", 0.0),
+                    total=item_data.get("total", 0.0),
+                )
+                db.add(item)
+
+            db.commit()
+            db.refresh(invoice)
+            logger.info(f"✅ Created invoice: {invoice.invoice_number}")
+            return invoice
+        except Exception as e:
+            db.rollback()
+            logger.error(f"❌ Failed to create invoice: {e}")
+            raise
+
+    # ── GET SINGLE ────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def get_invoice_by_id(
+        db: Session,
+        invoice_id: str,
+        include_deleted: bool = False,
+    ) -> Optional["PharmacyInvoice"]:
+        try:
+            query = db.query(PharmacyInvoice).filter(PharmacyInvoice.id == invoice_id)
+            if not include_deleted:
+                query = query.filter(PharmacyInvoice.is_deleted == False)
+            return query.first()
+        except Exception as e:
+            logger.error(f"❌ Failed to fetch invoice {invoice_id}: {e}")
+            raise
+
+    # ── LIST (for the invoices page table) ────────────────────────────────────
+
+    @staticmethod
+    def get_all_invoices(
+        db: Session,
+        hospital_id: Optional[str] = None,
+        status: Optional[str] = None,          # tab filter: completed/pending/partial/cancelled
+        search: Optional[str] = None,           # search bar: invoice # or customer name
+        payment_method: Optional[str] = None,   # column filter
+        date_from: Optional[str] = None,        # YYYY-MM-DD
+        date_to: Optional[str] = None,          # YYYY-MM-DD
+        page: int = 1,
+        per_page: int = 20,
+    ) -> Dict[str, Any]:
+        try:
+            from sqlalchemy import or_
+            from datetime import datetime
+
+            per_page = min(per_page, 100)
+            offset = (page - 1) * per_page
+
+            base = db.query(PharmacyInvoice).filter(PharmacyInvoice.is_deleted == False)
+
+            if hospital_id:
+                base = base.filter(PharmacyInvoice.hospital_id == hospital_id)
+            if status:
+                base = base.filter(PharmacyInvoice.status == status)
+            if search:
+                base = base.filter(or_(
+                    PharmacyInvoice.invoice_number.ilike(f"%{search}%"),
+                    PharmacyInvoice.customer_name.ilike(f"%{search}%"),
+                ))
+            if payment_method:
+                base = base.filter(PharmacyInvoice.payment_method == payment_method)
+            if date_from:
+                base = base.filter(
+                    PharmacyInvoice.created_at >= datetime.strptime(date_from, "%Y-%m-%d")
+                )
+            if date_to:
+                base = base.filter(
+                    PharmacyInvoice.created_at <= datetime.strptime(date_to + " 23:59:59", "%Y-%m-%d %H:%M:%S")
+                )
+
+            # ── Status tab counts (always on full unfiltered set) ──
+            count_base = db.query(PharmacyInvoice).filter(PharmacyInvoice.is_deleted == False)
+            if hospital_id:
+                count_base = count_base.filter(PharmacyInvoice.hospital_id == hospital_id)
+
+            raw_counts = {
+                s: c for s, c in
+                count_base.with_entities(PharmacyInvoice.status, func.count(PharmacyInvoice.id))
+                          .group_by(PharmacyInvoice.status)
+                          .all()
+            }
+            counts = {
+                "all": sum(raw_counts.values()),
+                "completed": raw_counts.get("completed", 0),
+                "pending": raw_counts.get("pending", 0),
+                "partial": raw_counts.get("partial", 0),
+                "cancelled": raw_counts.get("cancelled", 0),
+            }
+
+            total = base.count()
+            invoices = base.order_by(PharmacyInvoice.created_at.desc()).offset(offset).limit(per_page).all()
+
+            # Fetch item counts in one query to avoid N+1
+            invoice_ids = [inv.id for inv in invoices]
+            item_counts = {}
+            if invoice_ids:
+                rows = (
+                    db.query(PharmacyInvoiceItem.invoice_id, func.count(PharmacyInvoiceItem.id))
+                    .filter(PharmacyInvoiceItem.invoice_id.in_(invoice_ids))
+                    .group_by(PharmacyInvoiceItem.invoice_id)
+                    .all()
+                )
+                item_counts = {inv_id: cnt for inv_id, cnt in rows}
+
+            results = []
+            for inv in invoices:
+                d = inv.to_dict()
+                d["item_count"] = item_counts.get(inv.id, 0)
+                results.append(d)
+
+            return {
+                "invoices": results,
+                "counts": counts,
+                "total": total,
+                "page": page,
+                "per_page": per_page,
+                "total_pages": max(1, (total + per_page - 1) // per_page),
+            }
+        except Exception as e:
+            logger.error(f"❌ Failed to fetch invoices: {e}")
+            raise
+
+    # ── GET ITEMS for an invoice ───────────────────────────────────────────────
+
+    @staticmethod
+    def get_invoice_items(db: Session, invoice_id: str) -> List[Dict[str, Any]]:
+        try:
+            items = db.query(PharmacyInvoiceItem).filter(
+                PharmacyInvoiceItem.invoice_id == invoice_id
+            ).all()
+            return [item.to_dict() for item in items]
+        except Exception as e:
+            logger.error(f"❌ Failed to fetch items for invoice {invoice_id}: {e}")
+            raise
+
+    # ── UPDATE ────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def update_invoice(
+        db: Session,
+        invoice_id: str,
+        updated_data: Dict[str, Any],
+        items: Optional[List[Dict[str, Any]]] = None,  # pass to replace all items
+    ) -> Optional["PharmacyInvoice"]:
+        try:
+            invoice = db.query(PharmacyInvoice).filter(
+                PharmacyInvoice.id == invoice_id,
+                PharmacyInvoice.is_deleted == False,
+            ).first()
+            if not invoice:
+                return None
+
+            allowed = {
+                "customer_id", "customer_name", "payment_method", "status",
+                "subtotal", "discount", "discount_percent", "tax",
+                "total", "amount_paid", "balance_due", "notes",
+            }
+            for k, v in updated_data.items():
+                if k in allowed:
+                    setattr(invoice, k, v)
+
+            # Replace items if provided
+            if items is not None:
+                db.query(PharmacyInvoiceItem).filter(
+                    PharmacyInvoiceItem.invoice_id == invoice_id
+                ).delete()
+                db.flush()
+                for item_data in items:
+                    item = PharmacyInvoiceItem(
+                        invoice_id=invoice.id,
+                        medicine_id=item_data.get("medicine_id"),
+                        product_id=item_data.get("product_id"),
+                        product_name=item_data.get("product_name", ""),
+                        product_code=item_data.get("product_code"),
+                        quantity=item_data.get("quantity", 1),
+                        unit_price=item_data.get("unit_price", 0.0),
+                        discount=item_data.get("discount", 0.0),
+                        total=item_data.get("total", 0.0),
+                    )
+                    db.add(item)
+
+            db.commit()
+            db.refresh(invoice)
+            logger.info(f"✅ Updated invoice: {invoice.invoice_number}")
+            return invoice
+        except Exception as e:
+            db.rollback()
+            logger.error(f"❌ Failed to update invoice {invoice_id}: {e}")
+            raise
+
+    # ── QUICK STATUS UPDATE ───────────────────────────────────────────────────
+
+    @staticmethod
+    def update_status(db: Session, invoice_id: str, new_status: str) -> Optional["PharmacyInvoice"]:
+        try:
+            invoice = db.query(PharmacyInvoice).filter(
+                PharmacyInvoice.id == invoice_id,
+                PharmacyInvoice.is_deleted == False,
+            ).first()
+            if not invoice:
+                return None
+            invoice.status = new_status
+            db.commit()
+            db.refresh(invoice)
+            logger.info(f"✅ Status updated to '{new_status}' for invoice: {invoice.invoice_number}")
+            return invoice
+        except Exception as e:
+            db.rollback()
+            logger.error(f"❌ Failed to update status for invoice {invoice_id}: {e}")
+            raise
+
+    # ── SOFT DELETE → TRASH ───────────────────────────────────────────────────
+
+    @staticmethod
+    def soft_delete_invoice(db: Session, invoice_id: str) -> bool:
+        from datetime import datetime, timezone
+        try:
+            invoice = db.query(PharmacyInvoice).filter(
+                PharmacyInvoice.id == invoice_id,
+                PharmacyInvoice.is_deleted == False,
+            ).first()
+            if not invoice:
+                return False
+            invoice.is_deleted = True
+            invoice.deleted_at = datetime.now(timezone.utc)
+            db.commit()
+            logger.info(f"🗑️ Moved to trash: {invoice.invoice_number}")
+            return True
+        except Exception as e:
+            db.rollback()
+            logger.error(f"❌ Failed to delete invoice {invoice_id}: {e}")
+            raise
+
+    # ── RESTORE FROM TRASH ────────────────────────────────────────────────────
+
+    @staticmethod
+    def restore_invoice(db: Session, invoice_id: str) -> Optional["PharmacyInvoice"]:
+        try:
+            invoice = db.query(PharmacyInvoice).filter(
+                PharmacyInvoice.id == invoice_id,
+                PharmacyInvoice.is_deleted == True,
+            ).first()
+            if not invoice:
+                return None
+            invoice.is_deleted = False
+            invoice.deleted_at = None
+            db.commit()
+            db.refresh(invoice)
+            logger.info(f"♻️ Restored from trash: {invoice.invoice_number}")
+            return invoice
+        except Exception as e:
+            db.rollback()
+            logger.error(f"❌ Failed to restore invoice {invoice_id}: {e}")
+            raise
+
+    # ── TRASH LIST ────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def get_trash(db: Session, hospital_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        try:
+            query = db.query(PharmacyInvoice).filter(PharmacyInvoice.is_deleted == True)
+            if hospital_id:
+                query = query.filter(PharmacyInvoice.hospital_id == hospital_id)
+            invoices = query.order_by(PharmacyInvoice.deleted_at.desc()).all()
+            return [inv.to_dict() for inv in invoices]
+        except Exception as e:
+            logger.error(f"❌ Failed to fetch trash: {e}")
+            raise
+
+    # ── HARD DELETE (permanent, from Trash only) ──────────────────────────────
+
+    @staticmethod
+    def hard_delete_invoice(db: Session, invoice_id: str) -> bool:
+        try:
+            invoice = db.query(PharmacyInvoice).filter(
+                PharmacyInvoice.id == invoice_id,
+                PharmacyInvoice.is_deleted == True,
+            ).first()
+            if not invoice:
+                return False
+            db.query(PharmacyInvoiceItem).filter(
+                PharmacyInvoiceItem.invoice_id == invoice_id
+            ).delete()
+            db.delete(invoice)
+            db.commit()
+            logger.info(f"💥 Permanently deleted invoice: {invoice_id}")
+            return True
+        except Exception as e:
+            db.rollback()
+            logger.error(f"❌ Failed to permanently delete invoice {invoice_id}: {e}")
             raise

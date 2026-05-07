@@ -51,7 +51,14 @@ _default_origins = [o for o in [WEB_BASE_URL, MOBILE_BASE_URL, "https://pulseq.h
     "https://reception.pulseq.health",     # Reception Portal
     "https://pharmacy.pulseq.health",      # Pharmacy Portal
     "https://admin.pulseq.health",         # Admin Portal
-    "https://demo.pulseq.health"] if o]
+    "https://demo.pulseq.health",
+    "http://patient.localhost:4200/",
+    "http://doctor.localhost:4200/",
+    "http://reception.localhost:4200/",
+    "http://pharmacy.localhost:4200/",
+    "http://admin.localhost:4200/",
+    "http://demo.localhost:4200/"
+] if o]
 _extra = EXTRA_CORS_ORIGINS or []
 if not (_allowed_origins or _default_origins or _extra):
     _allowed_origins = ["*"]

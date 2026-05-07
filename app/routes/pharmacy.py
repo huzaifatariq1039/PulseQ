@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, case, literal_column
 from app.db_models import PharmacyMedicine, PharmacySale
+from db_automation.services import PharmacyInvoiceService
 
 from app.security import get_current_active_user
 from app.database import get_db
@@ -741,3 +742,241 @@ async def restore_item(
         message=f"Medicine '{med.name}' restored successfully",
         data={"restored_id": med.id}
     )
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  PHARMACY INVOICES ROUTES
+#  Append this entire block to the bottom of routes/pharmacy.py
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+#  Also add this ONE import at the top of pharmacy.py alongside existing imports:
+#
+#  from db_automation.services import PharmacyInvoiceService
+#
+# ═══════════════════════════════════════════════════════════════════════════════
+
+from pydantic import BaseModel as _BaseModel
+from typing import Optional as _Optional, List as _List
+
+
+# ── Request / Response models ─────────────────────────────────────────────────
+
+class InvoiceItemPayload(_BaseModel):
+    medicine_id: _Optional[str] = None
+    product_id: _Optional[int] = None
+    product_name: str
+    product_code: _Optional[str] = None
+    quantity: float = 1
+    unit_price: float
+    discount: float = 0.0
+    total: float
+
+
+class CreateInvoiceRequest(_BaseModel):
+    customer_id: _Optional[str] = None
+    customer_name: str = "Walk in customer"
+    payment_method: str = "cash"
+    status: str = "pending"
+    subtotal: float = 0.0
+    discount: float = 0.0
+    discount_percent: float = 0.0
+    tax: float = 0.0
+    total: float = 0.0
+    amount_paid: float = 0.0
+    balance_due: float = 0.0
+    notes: _Optional[str] = None
+    items: _List[InvoiceItemPayload] = []
+
+
+class UpdateInvoiceRequest(_BaseModel):
+    customer_id: _Optional[str] = None
+    customer_name: _Optional[str] = None
+    payment_method: _Optional[str] = None
+    status: _Optional[str] = None
+    subtotal: _Optional[float] = None
+    discount: _Optional[float] = None
+    discount_percent: _Optional[float] = None
+    tax: _Optional[float] = None
+    total: _Optional[float] = None
+    amount_paid: _Optional[float] = None
+    balance_due: _Optional[float] = None
+    notes: _Optional[str] = None
+    items: _Optional[_List[InvoiceItemPayload]] = None
+
+
+# ── GET /invoices ─────────────────────────────────────────────────────────────
+
+@router.get("/invoices", dependencies=[Depends(require_roles("pharmacy", "admin"))])
+async def list_invoices(
+    db: Session = Depends(get_db),
+    current: TokenData = Depends(get_current_active_user),
+    status: _Optional[str] = Query(None, description="completed | pending | partial | cancelled"),
+    search: _Optional[str] = Query(None, description="Search by invoice # or customer name"),
+    payment_method: _Optional[str] = Query(None, description="cash | card | insurance | online"),
+    date_from: _Optional[str] = Query(None, description="YYYY-MM-DD"),
+    date_to: _Optional[str] = Query(None, description="YYYY-MM-DD"),
+    hospital_id: _Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+):
+    h_id = hospital_id or getattr(current, "hospital_id", None)
+    result = PharmacyInvoiceService.get_all_invoices(
+        db=db,
+        hospital_id=h_id,
+        status=status,
+        search=search,
+        payment_method=payment_method,
+        date_from=date_from,
+        date_to=date_to,
+        page=page,
+        per_page=per_page,
+    )
+    return ok(data=result)
+
+
+# ── GET /invoices/trash ───────────────────────────────────────────────────────
+# Returns soft-deleted invoices (Trash button in UI)
+
+@router.get("/invoices/trash", dependencies=[Depends(require_roles("pharmacy", "admin"))])
+async def list_invoice_trash(
+    db: Session = Depends(get_db),
+    current: TokenData = Depends(get_current_active_user),
+    hospital_id: _Optional[str] = Query(None),
+):
+    h_id = hospital_id or getattr(current, "hospital_id", None)
+    invoices = PharmacyInvoiceService.get_trash(db=db, hospital_id=h_id)
+    return ok(data=invoices)
+
+
+# ── GET /invoices/{invoice_id} ────────────────────────────────────────────────
+# Full invoice detail with all line items (View button in UI)
+
+@router.get("/invoices/{invoice_id}", dependencies=[Depends(require_roles("pharmacy", "admin"))])
+async def get_invoice(
+    invoice_id: str,
+    db: Session = Depends(get_db),
+):
+    invoice = PharmacyInvoiceService.get_invoice_by_id(db=db, invoice_id=invoice_id)
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+
+    data = invoice.to_dict()
+    data["items"] = PharmacyInvoiceService.get_invoice_items(db=db, invoice_id=invoice_id)
+    data["item_count"] = len(data["items"])
+    return ok(data=data)
+
+
+# ── POST /invoices ────────────────────────────────────────────────────────────
+# Create new invoice (New Invoice button in UI)
+
+@router.post("/invoices", dependencies=[Depends(require_roles("pharmacy", "admin"))])
+async def create_invoice(
+    payload: CreateInvoiceRequest,
+    db: Session = Depends(get_db),
+    current: TokenData = Depends(get_current_active_user),
+):
+    invoice = PharmacyInvoiceService.create_invoice(
+        db=db,
+        customer_id=payload.customer_id,
+        customer_name=payload.customer_name,
+        payment_method=payload.payment_method,
+        status=payload.status,
+        subtotal=payload.subtotal,
+        discount=payload.discount,
+        discount_percent=payload.discount_percent,
+        tax=payload.tax,
+        total=payload.total,
+        amount_paid=payload.amount_paid,
+        balance_due=payload.balance_due,
+        notes=payload.notes,
+        hospital_id=getattr(current, "hospital_id", None),
+        created_by=getattr(current, "user_id", None),
+        items=[item.model_dump() for item in payload.items],
+    )
+    data = invoice.to_dict()
+    data["items"] = PharmacyInvoiceService.get_invoice_items(db=db, invoice_id=invoice.id)
+    data["item_count"] = len(data["items"])
+    return ok(data=data, message="Invoice created successfully")
+
+
+# ── PUT /invoices/{invoice_id} ────────────────────────────────────────────────
+# Edit invoice (Edit button in UI)
+
+@router.put("/invoices/{invoice_id}", dependencies=[Depends(require_roles("pharmacy", "admin"))])
+async def update_invoice(
+    invoice_id: str,
+    payload: UpdateInvoiceRequest,
+    db: Session = Depends(get_db),
+):
+    updated_data = payload.model_dump(exclude_unset=True, exclude={"items"})
+    items = [item.model_dump() for item in payload.items] if payload.items is not None else None
+
+    invoice = PharmacyInvoiceService.update_invoice(
+        db=db,
+        invoice_id=invoice_id,
+        updated_data=updated_data,
+        items=items,
+    )
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+
+    data = invoice.to_dict()
+    data["items"] = PharmacyInvoiceService.get_invoice_items(db=db, invoice_id=invoice.id)
+    data["item_count"] = len(data["items"])
+    return ok(data=data, message="Invoice updated successfully")
+
+
+# ── PATCH /invoices/{invoice_id}/status ──────────────────────────────────────
+# Quick status change (e.g. mark as completed/cancelled)
+
+@router.patch("/invoices/{invoice_id}/status", dependencies=[Depends(require_roles("pharmacy", "admin"))])
+async def update_invoice_status(
+    invoice_id: str,
+    new_status: str = Query(..., description="completed | pending | partial | cancelled"),
+    db: Session = Depends(get_db),
+):
+    invoice = PharmacyInvoiceService.update_status(db=db, invoice_id=invoice_id, new_status=new_status)
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    return ok(data=invoice.to_dict(), message=f"Status updated to '{new_status}'")
+
+
+# ── DELETE /invoices/{invoice_id} ─────────────────────────────────────────────
+# Soft delete → moves to Trash
+
+@router.delete("/invoices/{invoice_id}", dependencies=[Depends(require_roles("pharmacy", "admin"))])
+async def delete_invoice(
+    invoice_id: str,
+    db: Session = Depends(get_db),
+):
+    success = PharmacyInvoiceService.soft_delete_invoice(db=db, invoice_id=invoice_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    return ok(message="Invoice moved to trash")
+
+
+# ── POST /invoices/{invoice_id}/restore ──────────────────────────────────────
+# Restore invoice from Trash
+
+@router.post("/invoices/{invoice_id}/restore", dependencies=[Depends(require_roles("pharmacy", "admin"))])
+async def restore_invoice(
+    invoice_id: str,
+    db: Session = Depends(get_db),
+):
+    invoice = PharmacyInvoiceService.restore_invoice(db=db, invoice_id=invoice_id)
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found in trash")
+    return ok(data=invoice.to_dict(), message="Invoice restored successfully")
+
+
+# ── DELETE /invoices/{invoice_id}/permanent ───────────────────────────────────
+# Permanently delete from Trash (hard delete)
+
+@router.delete("/invoices/{invoice_id}/permanent", dependencies=[Depends(require_roles("pharmacy", "admin"))])
+async def permanent_delete_invoice(
+    invoice_id: str,
+    db: Session = Depends(get_db),
+):
+    success = PharmacyInvoiceService.hard_delete_invoice(db=db, invoice_id=invoice_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Invoice not found in trash")
+    return ok(message="Invoice permanently deleted")

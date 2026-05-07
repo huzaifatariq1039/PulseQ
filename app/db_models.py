@@ -444,3 +444,86 @@ class DoctorRating(Base):
         # One rating per patient per token (appointment)
         Index("uq_token_patient_rating", "token_id", "patient_id", unique=True),
     )
+
+# ═══════════════════════════════════════════════════════════
+#  PHARMACY INVOICES
+# ═══════════════════════════════════════════════════════════
+
+class PharmacyInvoice(Base):
+    __tablename__ = "pharmacy_invoices"
+
+    id = Column(String, primary_key=True, index=True, default=lambda: str(uuid.uuid4()))
+    invoice_number = Column(String, unique=True, nullable=False, index=True)
+    customer_id = Column(String, nullable=True)
+    customer_name = Column(String, nullable=False, default="Walk in customer")
+    status = Column(String, default="pending", nullable=False, index=True)
+    payment_method = Column(String, default="cash", nullable=False)
+    subtotal = Column(Float, default=0.0)
+    discount = Column(Float, default=0.0)
+    discount_percent = Column(Float, default=0.0)
+    tax = Column(Float, default=0.0)
+    total = Column(Float, default=0.0)
+    amount_paid = Column(Float, default=0.0)
+    balance_due = Column(Float, default=0.0)
+    notes = Column(Text, nullable=True)
+    hospital_id = Column(String, ForeignKey("hospitals.id"), nullable=True, index=True)
+    created_by = Column(String, nullable=True)
+    is_deleted = Column(Boolean, default=False)
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "invoice_number": self.invoice_number,
+            "customer_id": self.customer_id,
+            "customer_name": self.customer_name,
+            "status": self.status,
+            "payment_method": self.payment_method,
+            "subtotal": self.subtotal,
+            "discount": self.discount,
+            "discount_percent": self.discount_percent,
+            "tax": self.tax,
+            "total": self.total,
+            "amount_paid": self.amount_paid,
+            "balance_due": self.balance_due,
+            "notes": self.notes,
+            "hospital_id": self.hospital_id,
+            "created_by": self.created_by,
+            "is_deleted": self.is_deleted,
+            "deleted_at": self.deleted_at.isoformat() if self.deleted_at else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class PharmacyInvoiceItem(Base):
+    __tablename__ = "pharmacy_invoice_items"
+
+    id = Column(String, primary_key=True, index=True, default=lambda: str(uuid.uuid4()))
+    invoice_id = Column(String, ForeignKey("pharmacy_invoices.id"), nullable=False, index=True)
+    medicine_id = Column(String, nullable=True)
+    product_id = Column(Integer, nullable=True)
+    product_name = Column(String, nullable=False)
+    product_code = Column(String, nullable=True)
+    quantity = Column(Float, nullable=False, default=1)
+    unit_price = Column(Float, nullable=False, default=0.0)
+    discount = Column(Float, default=0.0)
+    total = Column(Float, nullable=False, default=0.0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "invoice_id": self.invoice_id,
+            "medicine_id": self.medicine_id,
+            "product_id": self.product_id,
+            "product_name": self.product_name,
+            "product_code": self.product_code,
+            "quantity": self.quantity,
+            "unit_price": self.unit_price,
+            "discount": self.discount,
+            "total": self.total,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }

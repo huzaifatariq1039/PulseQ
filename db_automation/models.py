@@ -5,8 +5,8 @@ from sqlalchemy import Column, String, DateTime, Boolean, JSON, Integer, Float, 
 from sqlalchemy.sql import func
 import uuid
 
-from db_automation.database import Base
-
+#from db_automation.database import Base
+from app.database import Base
 
 def _uuid():
     return str(uuid.uuid4())
@@ -686,5 +686,106 @@ class PharmacySale(Base):
             "payment_status": self.payment_status,
             "sold_at": self.sold_at.isoformat() if self.sold_at else None,
             "performed_by": self.performed_by,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+# ═══════════════════════════════════════════════════════════
+#  PHARMACY INVOICES
+# ═══════════════════════════════════════════════════════════
+
+class PharmacyInvoice(Base):
+    __tablename__ = "pharmacy_invoices"
+
+    id = Column(String, primary_key=True, default=_uuid)
+    invoice_number = Column(String, unique=True, nullable=False, index=True)
+
+    # Customer — links to users table (walk-in patients or registered users)
+    customer_id = Column(String, nullable=True)          # FK to users.id (optional)
+    customer_name = Column(String, nullable=False, default="Walk in customer")
+
+    status = Column(String, default="pending", nullable=False, index=True)
+    # Values: "completed" | "pending" | "partial" | "cancelled"
+
+    payment_method = Column(String, default="cash", nullable=False)
+    # Values: "cash" | "card" | "insurance" | "online"
+
+    subtotal = Column(Float, default=0.0)
+    discount = Column(Float, default=0.0)           # flat amount discount
+    discount_percent = Column(Float, default=0.0)   # percentage discount
+    tax = Column(Float, default=0.0)
+    total = Column(Float, default=0.0)
+    amount_paid = Column(Float, default=0.0)        # used for partial payments
+    balance_due = Column(Float, default=0.0)
+
+    notes = Column(Text, nullable=True)
+    hospital_id = Column(String, nullable=True, index=True)
+    created_by = Column(String, nullable=True)      # user_id of pharmacy staff
+    is_deleted = Column(Boolean, default=False)     # soft delete for Trash
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    def __repr__(self):
+        return f"<PharmacyInvoice(id={self.id!r}, invoice_number={self.invoice_number!r})>"
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "invoice_number": self.invoice_number,
+            "customer_id": self.customer_id,
+            "customer_name": self.customer_name,
+            "status": self.status,
+            "payment_method": self.payment_method,
+            "subtotal": self.subtotal,
+            "discount": self.discount,
+            "discount_percent": self.discount_percent,
+            "tax": self.tax,
+            "total": self.total,
+            "amount_paid": self.amount_paid,
+            "balance_due": self.balance_due,
+            "notes": self.notes,
+            "hospital_id": self.hospital_id,
+            "created_by": self.created_by,
+            "is_deleted": self.is_deleted,
+            "deleted_at": self.deleted_at.isoformat() if self.deleted_at else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class PharmacyInvoiceItem(Base):
+    __tablename__ = "pharmacy_invoice_items"
+
+    id = Column(String, primary_key=True, default=_uuid)
+    invoice_id = Column(String, nullable=False, index=True)  # FK to pharmacy_invoices.id
+
+    # Medicine details (snapshot at time of sale)
+    medicine_id = Column(String, nullable=True)      # FK to pharmacy_medicines.id
+    product_id = Column(Integer, nullable=True)      # product_id from pharmacy_medicines
+    product_name = Column(String, nullable=False)
+    product_code = Column(String, nullable=True)
+
+    quantity = Column(Float, nullable=False, default=1)
+    unit_price = Column(Float, nullable=False, default=0.0)
+    discount = Column(Float, default=0.0)
+    total = Column(Float, nullable=False, default=0.0)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    def __repr__(self):
+        return f"<PharmacyInvoiceItem(id={self.id!r}, product_name={self.product_name!r})>"
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "invoice_id": self.invoice_id,
+            "medicine_id": self.medicine_id,
+            "product_id": self.product_id,
+            "product_name": self.product_name,
+            "product_code": self.product_code,
+            "quantity": self.quantity,
+            "unit_price": self.unit_price,
+            "discount": self.discount,
+            "total": self.total,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
