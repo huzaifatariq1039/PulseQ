@@ -1,7 +1,7 @@
 import { Component, OnInit, OnDestroy, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { TableModule } from 'primeng/table';
 import { ButtonModule } from 'primeng/button';
 import { CardModule } from 'primeng/card';
@@ -62,6 +62,7 @@ export class ReceptionManageDoctorsComponent implements OnInit, OnDestroy {
     private destroy$ = new Subject<void>();
 
     constructor(
+        private route: ActivatedRoute,
         private router: Router,
         private messageService: MessageService,
         private doctorService: DoctorService,
@@ -247,11 +248,11 @@ export class ReceptionManageDoctorsComponent implements OnInit, OnDestroy {
     navigateTo(page: 'dashboard' | 'queue' | 'manage-doctors') {
         this.currentNav = page;
         this.sidebarOpen = false;
-        if (page === 'dashboard') this.router.navigate(['/dashboard']);
-        else if (page === 'queue') this.router.navigate(['/queue']);
-        else if (page === 'manage-doctors') this.router.navigate(['/manage-doctors']);
+        if (page === 'dashboard') this.router.navigate(['../dashboard'], { relativeTo: this.route });
+        else if (page === 'queue') this.router.navigate(['../queue'], { relativeTo: this.route });
+        else if (page === 'manage-doctors') this.router.navigate(['../manage-doctors'], { relativeTo: this.route });
     }
 
     toggleSidebar() { this.sidebarOpen = !this.sidebarOpen; }
-    signOut() { this.router.navigate(['/']); }
+    signOut() { this.router.navigate(['../auth'], { relativeTo: this.route }); }
 }

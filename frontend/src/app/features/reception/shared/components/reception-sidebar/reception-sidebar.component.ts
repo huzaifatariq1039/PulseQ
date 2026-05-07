@@ -1,6 +1,6 @@
 import { Component, Input, Output, EventEmitter } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 
 @Component({
     selector: 'app-reception-sidebar',
@@ -16,7 +16,7 @@ export class ReceptionSidebarComponent {
     @Output() navigate = new EventEmitter<'dashboard' | 'queue' | 'manage-doctors'>();
     @Output() signOut = new EventEmitter<void>();
 
-    constructor(private router: Router) { }
+    constructor(private route: ActivatedRoute, private router: Router) { }
 
     onNavigate(page: 'dashboard' | 'queue' | 'manage-doctors') {
         this.navigate.emit(page);
@@ -28,6 +28,6 @@ export class ReceptionSidebarComponent {
 
     onSignOut() {
         this.signOut.emit();
-        this.router.navigate(['/']);
+        this.router.navigate(['../auth'], { relativeTo: this.route });
     }
 }

@@ -201,10 +201,10 @@ export class PatientHistoryComponent implements OnInit {
   }
 
   goBack(): void {
-    this.router.navigate(['/dashboard']);
+    this.router.navigate(['../dashboard'], { relativeTo: this.activatedRoute });
   }
 
   logout(): void {
-    this.router.navigate(['/']);
+    this.router.navigate(['../auth'], { relativeTo: this.activatedRoute });
   }
 }

@@ -1,7 +1,7 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormBuilder, FormGroup, Validators } from '@angular/forms';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { CardModule } from 'primeng/card';
 import { InputTextModule } from 'primeng/inputtext';
@@ -35,6 +35,7 @@ export class DoctorAuthComponent implements OnInit {
 
   constructor(
     private fb: FormBuilder,
+    private route: ActivatedRoute,
     private router: Router,
     private messageService: MessageService,
     private authService: AuthService
@@ -71,7 +72,7 @@ export class DoctorAuthComponent implements OnInit {
             life: 2000
           });
           setTimeout(() => {
-            this.router.navigate(['/dashboard']);
+            this.router.navigate(['../dashboard'], { relativeTo: this.route });
           }, 500);
         } else {
           this.messageService.add({
@@ -95,6 +96,6 @@ export class DoctorAuthComponent implements OnInit {
   }
 
   goBack(): void {
-    this.router.navigate(['/']);
+    this.router.navigate(['../auth'], { relativeTo: this.route });
   }
 }
