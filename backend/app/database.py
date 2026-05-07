@@ -63,16 +63,17 @@ def get_db_session() -> Session:
     """Get database session directly using SessionLocal"""
     return SessionLocal()
 
-# Initialize database tables
 def init_db():
-    """Create all tables using the global engine"""
+    """Compatibility hook for legacy startup paths.
+
+    Schema management is now handled by Alembic migrations, so this function
+    no longer creates tables at application startup.
+    """
     try:
-        from app import db_models  # Import all models to register with Base
-        Base.metadata.create_all(bind=engine)
-        print("Database tables created successfully!")
+        from app import db_models  # noqa: F401  # Import models so metadata is registered
+        print("ℹ️ Database schema is managed by Alembic. Run 'alembic upgrade head' before starting the app.")
     except Exception as e:
-        print(f"⚠️ Could not create tables: {e}")
-        print("⚠️ Tables may already exist or database is unavailable")
+        print(f"⚠️ Could not load database models for Alembic metadata: {e}")
 
 # Legacy compatibility - MockFirestore interface for gradual migration
 class MockFirestore:

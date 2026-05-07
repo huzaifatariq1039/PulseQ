@@ -10,7 +10,7 @@ import time
 from starlette.middleware.base import BaseHTTPMiddleware
  
 from app.config import PROJECT_NAME, DEBUG
-from app.database import initialize_firebase, init_db
+from app.database import initialize_firebase
 from app.config_env import WEB_BASE_URL, MOBILE_BASE_URL, EXTRA_CORS_ORIGINS
 from app.utils.responses import fail
 from app.services.ai_engine import ai_engine
@@ -70,8 +70,7 @@ async def lifespan(app: FastAPI):
  
     try:
         initialize_firebase()
-        init_db()
-        print("✅ Database initialized successfully!")
+        print("✅ Database connection initialized successfully!")
     except Exception as e:
         print(f"⚠️ Database initialization warning: {e}")
         print("⚠️ Continuing without database - some features may not work")
