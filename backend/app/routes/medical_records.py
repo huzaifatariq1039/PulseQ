@@ -73,6 +73,7 @@ async def get_medical_record_stats(
 ):
     """Return only the stats needed by the dashboard (Total, Recent, Follow-up)."""
     from app.db_models import MedicalRecord
+    from app.services.storage_service import upload_bytes
     
     now = datetime.utcnow()
     recent_window = now - timedelta(days=30)
@@ -130,11 +131,15 @@ async def upload_medical_record(
     
     from app.db_models import MedicalRecord
     record_id = str(uuid.uuid4())
+    # Upload the file to object storage and store public URL in DB
+    object_key = f"medical_records/{current_user.user_id}/{unique_filename}"
+    public_url = upload_bytes(object_key, contents, content_type=file.content_type)
+
     new_record = MedicalRecord(
         id=record_id,
         user_id=current_user.user_id,
         filename=file.filename,
-        file_path=f"medical_records/{current_user.user_id}/{unique_filename}",
+        file_path=public_url,
         file_type=file.content_type,
         file_size=size_bytes,
         record_type=record_type,
