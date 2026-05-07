@@ -8,11 +8,12 @@ import os
 import asyncio
 import time
 from starlette.middleware.base import BaseHTTPMiddleware
- 
+
 from app.config import PROJECT_NAME, DEBUG
 from app.database import initialize_firebase
 from app.config_env import WEB_BASE_URL, MOBILE_BASE_URL, EXTRA_CORS_ORIGINS
 from app.utils.responses import fail
+from app.exceptions import PulseQException
 from app.services.ai_engine import ai_engine
 from app.services.queue_management_service import QueueManagementService
 from app.config import QUEUE_AUTOSKIP_INTERVAL_SECONDS
@@ -222,17 +223,53 @@ async def secure_endpoint():
  
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
-    return fail(message="Internal server error", status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    """Global exception handler for unhandled exceptions."""
+    return fail(
+        message="Internal server error",
+        error_code="INTERNAL_SERVER_ERROR",
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+    )
  
  
+@app.exception_handler(PulseQException)
+async def pulseq_exception_handler(request, exc: PulseQException):
+    """Handler for PulseQException with error_code support.
+    
+    PulseQException instances already contain an error_code field,
+    so we can pass it directly to the fail() function.
+    """
+    return fail(
+        message=exc.detail,
+        error_code=exc.error_code,
+        status_code=exc.status_code,
+    )
+
+
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request, exc: HTTPException):
+    """Handler for HTTP exceptions (401, 403, 404, etc.)."""
     message = exc.detail if isinstance(exc.detail, str) else "Request failed"
-    return fail(message=message, status_code=exc.status_code, data={"detail": exc.detail})
+    
+    # Map HTTP status codes to error codes
+    error_code_map = {
+        status.HTTP_401_UNAUTHORIZED: "UNAUTHORIZED",
+        status.HTTP_403_FORBIDDEN: "FORBIDDEN",
+        status.HTTP_404_NOT_FOUND: "NOT_FOUND",
+        status.HTTP_409_CONFLICT: "CONFLICT",
+    }
+    error_code = error_code_map.get(exc.status_code, "BAD_REQUEST")
+    
+    return fail(
+        message=message,
+        error_code=error_code,
+        status_code=exc.status_code,
+        data={"detail": exc.detail} if exc.detail else None
+    )
  
  
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request, exc: RequestValidationError):
+    """Handler for request validation errors (malformed JSON, type mismatches, etc.)."""
     try:
         first = exc.errors()[0] if exc.errors() else {}
         loc = ".".join([str(x) for x in first.get("loc", [])]) if first else "request"
@@ -240,9 +277,20 @@ async def validation_exception_handler(request, exc: RequestValidationError):
         message = f"{loc}: {msg}" if loc else msg
     except Exception:
         message = "Validation error"
-    return fail(message=message, status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, data={"errors": exc.errors()})
+    
+    return fail(
+        message=message,
+        error_code="VALIDATION_ERROR",
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        data={"errors": exc.errors()}
+    )
  
  
 @app.exception_handler(404)
 async def not_found_handler(request, exc):
-    return fail(message="Endpoint not found", status_code=status.HTTP_404_NOT_FOUND)
+    """Handler for 404 Not Found errors."""
+    return fail(
+        message="Endpoint not found",
+        error_code="NOT_FOUND",
+        status_code=status.HTTP_404_NOT_FOUND
+    )
