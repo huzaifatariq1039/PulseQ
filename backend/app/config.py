@@ -1,6 +1,7 @@
 import os
 from dotenv import load_dotenv
 from pathlib import Path
+from app.logger import get_logger
 
 # Base directory - project root (where .env file is located)
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -8,6 +9,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Load environment variables from .env file in project root
 env_path = BASE_DIR / ".env"
 load_dotenv(dotenv_path=env_path, encoding="utf-8", override=True)
+
+# Get logger for this module
+logger = get_logger(__name__)
 
 # Project Settings
 PROJECT_NAME = os.getenv("PROJECT_NAME", "PulseQBackend")
@@ -38,7 +42,7 @@ SECRET_KEY = os.getenv("SECRET_KEY") or os.getenv("JWT_SECRET_KEY")
 if not SECRET_KEY:
     # Do not raise RuntimeError at top-level to prevent app crash during initialization on Render.
     # We will log a warning instead.
-    print("⚠️ WARNING: SECRET_KEY is not configured! Please set SECRET_KEY or JWT_SECRET_KEY in your environment variables.")
+    logger.warning("SECRET_KEY is not configured! Please set SECRET_KEY or JWT_SECRET_KEY in your environment variables.")
     # For safety, we set a temporary dummy key so the app can start (will fail later on JWT verification)
     SECRET_KEY = "temporary-development-key-replace-me-immediately"
     
