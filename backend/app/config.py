@@ -112,3 +112,11 @@ R2_ENDPOINT_URL = os.getenv("R2_ENDPOINT_URL", "").strip()
 R2_BUCKET_NAME = os.getenv("R2_BUCKET_NAME", "").strip()
 # Optional region for boto3 client (R2 can work with any region string)
 R2_REGION = os.getenv("R2_REGION", "us-east-1").strip()
+
+# Upstash Serverless Redis configuration
+# Used by app.services.redis_service for Pub/Sub and distributed WebSocket broadcasting
+# Example: redis://default:password@hostname:port or rediss:// for SSL/TLS
+REDIS_URL = os.getenv("REDIS_URL", "").strip()
+# Optional: Redis retry and connection pool settings
+REDIS_SOCKET_TIMEOUT = int(os.getenv("REDIS_SOCKET_TIMEOUT", "5"))
+REDIS_SOCKET_CONNECT_TIMEOUT = int(os.getenv("REDIS_SOCKET_CONNECT_TIMEOUT", "5"))

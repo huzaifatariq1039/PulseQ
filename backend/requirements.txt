@@ -47,6 +47,7 @@ boto3>=1.26.0
 
 # Performance & Caching
 redis>=5.0.0
+redis[asyncio]>=5.0.0
 tenacity>=8.2.3
 asyncpg>=0.29.0
 

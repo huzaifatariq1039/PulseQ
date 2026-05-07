@@ -21,6 +21,7 @@ from app.services.queue_management_service import QueueManagementService
 from app.config import QUEUE_AUTOSKIP_INTERVAL_SECONDS
 from app.services.app_scheduler import start_scheduler, shutdown_scheduler
 from app.services.sync_service import sync_pos_to_postgres
+from app.services.redis_service import init_redis, close_redis
 from app.middleware.performance import PerformanceMiddleware
  
 from app.routes import auth, hospitals, doctors, tokens, dashboard
@@ -113,6 +114,13 @@ async def lifespan(app: FastAPI):
         logger.error(f"AI Engine failed to load: {e}")
 
     try:
+        await init_redis()
+        logger.info("🔴 Redis/Upstash initialized for WebSocket Pub/Sub")
+    except Exception as e:
+        logger.warning(f"Redis initialization warning: {e}")
+        logger.warning("⚠️ WebSocket broadcast across instances will be unavailable")
+
+    try:
         yield
     finally:
         logger.info("Shutting down Smart Token Backend...")
@@ -121,6 +129,11 @@ async def lifespan(app: FastAPI):
             autoskip_task.cancel()
         if pos_sync_task:
             pos_sync_task.cancel()
+
+        try:
+            await close_redis()
+        except Exception as e:
+            logger.error(f"Error closing Redis: {e}")
 
         try:
             shutdown_scheduler()
