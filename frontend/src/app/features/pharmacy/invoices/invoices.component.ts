@@ -43,6 +43,7 @@ import { PharmacySidebarComponent } from '../shared/components/pharmacy-sidebar/
 })
 export class InvoicesComponent implements OnInit {
     invoices: Invoice[] = [];
+    totalRecords = 0;
     loading = false;
     selectedInvoices: Invoice[] = [];
     searchTerm = '';
@@ -86,9 +87,12 @@ export class InvoicesComponent implements OnInit {
         this.cdr.markForCheck();
         this.invoiceService.getInvoices(params).subscribe({
             next: (res) => {
-                this.invoices = res.data || [];
-                this.loading = false;
+                const payload: any = res?.data ?? res;
+                const items = payload?.invoices ?? payload?.items ?? payload?.data ?? payload ?? [];
+                this.invoices = Array.isArray(items) ? items : [];
+                this.totalRecords = payload?.total ?? payload?.total_count ?? this.invoices.length;
                 this.cdr.markForCheck();
+                this.loading = false;
             },
             error: (err) => {
                 this.loading = false;

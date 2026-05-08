@@ -1,5 +1,12 @@
-<app-pharmacy-sidebar></app-pharmacy-sidebar>
-<div class="create-invoice-container">
+<div class="layout">
+
+    <!-- SIDEBAR -->
+    <app-pharmacy-sidebar></app-pharmacy-sidebar>
+
+    <!-- MAIN CONTENT -->
+    <main class="main-content">
+
+        <div class="create-invoice-container">
     <div class="header-section">
         <p-breadcrumb [model]="breadcrumbs" [home]="{ icon: 'pi pi-home' }"></p-breadcrumb>
         <div class="header-title">
@@ -152,4 +159,9 @@
         </p-button>
     </div>
 </div>
+
+    </main>
+
+</div>
+
 <p-toast></p-toast>
