@@ -206,11 +206,22 @@ export class CreateInvoiceComponent implements OnInit {
         this.isSubmitting = true;
         this.cdr.markForCheck();
         const payload = this.buildPayload();
+        // Ensure each item has a computed `total` to satisfy backend schema
+        const itemsWithTotals = this.invoiceItems.map(item => ({
+            product_id: item.product_id,
+            product_name: item.product_name,
+            product_code: item.product_code ?? null,
+            quantity: item.quantity,
+            unit_price: item.unit_price,
+            discount: item.discount,
+            total: (item.quantity * item.unit_price) - (item.discount || 0)
+        }));
+        (payload as any).items = itemsWithTotals;
         if (this.isEditMode && this.invoiceId) {
             this.invoiceService.updateInvoice(this.invoiceId, payload).subscribe({
                 next: () => {
                     this.messageService.add({ severity: 'success', summary: 'Success', detail: 'Invoice updated successfully' });
-                    setTimeout(() => this.router.navigate(['/staff/pharmacy/invoices']), 1500);
+                    this.router.navigate(['/staff/pharmacy/invoices']);
                 },
                 error: (err) => {
                     this.isSubmitting = false;
@@ -222,7 +233,7 @@ export class CreateInvoiceComponent implements OnInit {
             this.invoiceService.createInvoice(payload).subscribe({
                 next: () => {
                     this.messageService.add({ severity: 'success', summary: 'Success', detail: 'Invoice created successfully' });
-                    setTimeout(() => this.router.navigate(['/staff/pharmacy/invoices']), 1500);
+                    this.router.navigate(['/staff/pharmacy/invoices']);
                 },
                 error: (err) => {
                     this.isSubmitting = false;
@@ -237,7 +248,19 @@ export class CreateInvoiceComponent implements OnInit {
         if (!this.validateForm()) return;
         this.isSubmitting = true;
         this.cdr.markForCheck();
-        this.invoiceService.createInvoice(this.buildPayload()).subscribe({
+        const payload = this.buildPayload();
+        const itemsWithTotals = this.invoiceItems.map(item => ({
+            product_id: item.product_id,
+            product_name: item.product_name,
+            product_code: item.product_code ?? null,
+            quantity: item.quantity,
+            unit_price: item.unit_price,
+            discount: item.discount,
+            total: (item.quantity * item.unit_price) - (item.discount || 0)
+        }));
+        (payload as any).items = itemsWithTotals;
+
+        this.invoiceService.createInvoice(payload).subscribe({
             next: () => {
                 this.messageService.add({ severity: 'success', summary: 'Success', detail: 'Invoice created. Ready to create another.' });
                 this.initializeNewInvoice();

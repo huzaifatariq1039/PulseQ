@@ -1,5 +1,15 @@
-<app-pharmacy-sidebar></app-pharmacy-sidebar>
-<div class="invoices-container">
+<p-toast></p-toast>
+<p-confirmDialog></p-confirmDialog>
+
+<div class="layout">
+
+    <!-- SIDEBAR -->
+    <app-pharmacy-sidebar></app-pharmacy-sidebar>
+
+    <!-- MAIN CONTENT -->
+    <main class="main-content">
+
+        <div class="invoices-container">
     <div class="header-section">
         <p-breadcrumb [model]="breadcrumbs" [home]="{ icon: 'pi pi-home' }"></p-breadcrumb>
         <div class="header-content">
@@ -66,7 +76,7 @@
         </div>
     </div>
     }
-    <p-table [value]="invoices" [loading]="loading" [paginator]="true" [rows]="rowsPerPage"
+    <p-table [value]="invoices" [loading]="loading" [paginator]="true" [rows]="rowsPerPage" [totalRecords]="totalRecords"
         [rowsPerPageOptions]="[10, 25, 50]" [(selection)]="selectedInvoices" dataKey="id" [showCurrentPageReport]="true"
         currentPageReportTemplate="Showing {first} to {last} of {totalRecords} invoices"
         styleClass="p-datatable-sm p-datatable-gridlines" responsiveLayout="scroll">
@@ -116,6 +126,8 @@
             </tr>
         </ng-template>
     </p-table>
+        </div>
+
+    </main>
+
 </div>
-<p-toast></p-toast>
-<p-confirmDialog></p-confirmDialog>
