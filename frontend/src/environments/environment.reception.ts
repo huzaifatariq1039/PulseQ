@@ -1,5 +1,7 @@
+import { getApiBaseUrl } from '../app/core/config/api.config';
+
 export const environment = {
   production: true,
-  apiBaseUrl: 'https://oyster-app-notep.ondigitalocean.app/api/v1',
+  apiBaseUrl: getApiBaseUrl(),
   portal: 'reception'
 };
