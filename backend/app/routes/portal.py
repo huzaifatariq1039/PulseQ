@@ -15,6 +15,8 @@ from app.routes.pharmacy import router as pharmacy_router
 from app.utils.mrn import get_or_create_patient_mrn
 import uuid
 import logging
+from app.routes.tokens import avg_last_5, avg_last_10
+# OR wherever these functions live in your codebase
 
 # --- 🚀 AI Engine Imports ---
 from app.services.ai_engine import ai_engine
@@ -129,7 +131,20 @@ async def get_doctor_tokens(
     # Filter by doctor if user is a doctor (not admin)
     user_role = str(getattr(current, "role", "")).lower()
     if user_role == "doctor":
-        query = query.filter(Token.doctor_id == current.user_id)
+        # ✅ Fix — look up doctor by user_id first, then filter by doctor.id
+        doctor = db.query(Doctor).filter(
+            or_(
+                Doctor.user_id == current.user_id,
+                Doctor.id == current.user_id
+            )
+        ).first()
+
+        if not doctor:
+            # No doctor profile found — return empty
+            return ok(data=[], meta={"page": page, "page_size": page_size, "total": 0})
+
+        query = query.filter(Token.doctor_id == doctor.id)  # ✅ use doctor.id not user_id
+
     
     if patient_id:
         query = query.filter(Token.patient_id == patient_id)
@@ -557,12 +572,26 @@ async def receptionist_dashboard(
             gender = str(gender).capitalize()
         
         return age, gender
+    
+    def _get_avg_service_time(doctor_id: str) -> float:
+        try:
+           last_5 = avg_last_5(doctor_id, db) or 5.0
+           last_10 = avg_last_10(doctor_id, db) or 5.0
+           return round((0.6 * last_5) + (0.4 * last_10), 1)
+        except Exception:
+           return 5.0
 
     upcoming = []
+    position = 1
     for t in active:
         if now_serving and t.id == now_serving.id:
             continue
         age, gender = _get_age_and_gender(t.patient_id, t)
+
+        doc_id = t.doctor_id or doctor_id
+        avg_service = _get_avg_service_time(doc_id)
+        live_wait = max(1, round(position * avg_service))
+
         
         upcoming.append({
             "token_id": t.id,
@@ -574,6 +603,8 @@ async def receptionist_dashboard(
             "doctor_name": t.doctor_name,
             "waiting_time_minutes": getattr(t, 'estimated_wait_time', 0) or 0
         })
+
+        position += 1
         if len(upcoming) >= upcoming_limit:
             break
             
@@ -611,9 +642,12 @@ async def receptionist_dashboard(
                 "waiting": len(waiting),
                 "completed": len(completed),
                 "skipped": len(skipped),
-                "avg_wait_minutes": (
-                    sum((getattr(t, 'estimated_wait_time', 0) or 0) for t in active) // len([t for t in active if (getattr(t, 'estimated_wait_time', 0) or 0) > 0])
-                ) if any((getattr(t, 'estimated_wait_time', 0) or 0) > 0 for t in active) else 0,
+                #"avg_wait_minutes": (
+                #    sum((getattr(t, 'estimated_wait_time', 0) or 0) for t in active) // len([t for t in active if (getattr(t, 'estimated_wait_time', 0) or 0) > 0])
+                #) if any((getattr(t, 'estimated_wait_time', 0) or 0) > 0 for t in active) else 0,
+                "avg_wait_minutes": round(
+                    _get_avg_service_time(doctor_id or (doctors[0].id if doctors else None))
+                ) if active else 0,
             }
         }
     )
