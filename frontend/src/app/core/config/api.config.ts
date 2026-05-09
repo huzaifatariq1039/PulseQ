@@ -5,12 +5,12 @@
  * Falls back to sensible defaults if environment variables are not set.
  */
 
-const DEFAULT_LOCAL_DEV_URL = 'http://localhost:8000';
+const DEFAULT_API_BASE_URL = 'https://api.pulseq.health/api/v1';
 const DEFAULT_SSR_DEV_URL = 'http://localhost:4000';
 
 /**
  * Get the API base URL for client-side requests.
- * Uses VITE_API_URL environment variable, defaults to localhost:8000
+ * Uses VITE_API_URL environment variable, defaults to the PulseQ production API.
  */
 export function getApiBaseUrl(): string {
   // Try Vite environment variable (client-side)
@@ -26,7 +26,7 @@ export function getApiBaseUrl(): string {
   }
 
   // Fallback to default
-  return DEFAULT_LOCAL_DEV_URL;
+  return DEFAULT_API_BASE_URL;
 }
 
 /**
