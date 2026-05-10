@@ -2,7 +2,7 @@ import { Routes } from '@angular/router';
 import { authGuard } from '../core/guards/auth.guard';
 
 export const pharmacyRoutes: Routes = [
-    { path: '', redirectTo: 'dashboard', pathMatch: 'full' },
+    { path: '', redirectTo: 'auth', pathMatch: 'full' },
     {
         path: 'auth',
         loadComponent: () =>

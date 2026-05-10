@@ -17,27 +17,27 @@
     </div>
 
     <nav class="sidebar-menu">
-        <a routerLink="/dashboard" routerLinkActive="active" class="menu-item"
+        <a [routerLink]="dashboardPath" routerLinkActive="active" class="menu-item"
             [routerLinkActiveOptions]="{ exact: false }" (click)="sidebarOpen = false">
             <i class="pi pi-th-large"></i>
             <span>Dashboard</span>
         </a>
-        <a routerLink="/inventory" routerLinkActive="active" class="menu-item"
+        <a [routerLink]="inventoryPath" routerLinkActive="active" class="menu-item"
             [routerLinkActiveOptions]="{ exact: false }" (click)="sidebarOpen = false">
             <i class="pi pi-box"></i>
             <span>Inventory</span>
         </a>
-        <a routerLink="/sales" routerLinkActive="active" class="menu-item"
+        <a [routerLink]="salesPath" routerLinkActive="active" class="menu-item"
             [routerLinkActiveOptions]="{ exact: false }" (click)="sidebarOpen = false">
             <i class="pi pi-chart-line"></i>
             <span>Sales & Revenue</span>
         </a>
-        <a routerLink="/add" routerLinkActive="active" class="menu-item"
+        <a [routerLink]="addPath" routerLinkActive="active" class="menu-item"
             [routerLinkActiveOptions]="{ exact: false }" (click)="sidebarOpen = false">
             <i class="pi pi-plus-circle"></i>
             <span>Add Medicine</span>
         </a>
-        <a routerLink="/trash" routerLinkActive="active" class="menu-item"
+        <a [routerLink]="trashPath" routerLinkActive="active" class="menu-item"
             [routerLinkActiveOptions]="{ exact: false }" (click)="sidebarOpen = false">
             <i class="pi pi-trash"></i>
             <span>Trash</span>

@@ -11,6 +11,7 @@ import { PharmacyService } from '../../../core/services/pharmacy.service';
 import { Medicine } from '../../../shared/models/medicine.model';
 import { PharmacySidebarComponent } from '../shared/components/pharmacy-sidebar/pharmacy-sidebar.component';
 import { AuthService } from '../../../core/services/auth.service';
+import { pharmacyPath } from '../../../core/utils/portal-path.util';
 
 @Component({
     selector: 'app-pharmacy-dashboard',
@@ -74,10 +75,10 @@ export class PharmacyDashboardComponent implements OnInit {
     }
 
     goToInventory(): void {
-        this.router.navigate(['../inventory'], { relativeTo: this.route });
+        this.router.navigate([pharmacyPath('inventory')]);
     }
 
     goToSales(): void {
-        this.router.navigate(['../sales'], { relativeTo: this.route });
+        this.router.navigate([pharmacyPath('sales')]);
     }
 }

@@ -9,6 +9,7 @@ import { InputTextModule } from 'primeng/inputtext';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 
+import { environment } from '../../../../environments/environment';
 import { AuthService } from '../../../core/services/auth.service';
 
 @Component({
@@ -62,7 +63,14 @@ export class PharmacyAuthComponent implements OnInit {
             life: 2000
           });
           setTimeout(() => {
-            this.router.navigate(['/inventory']);
+            const isLocalhost = window.location.hostname === 'localhost' ||
+                                window.location.hostname === '127.0.0.1';
+
+            if (isLocalhost) {
+              this.router.navigate(['/staff/pharmacy/dashboard']);
+            } else {
+              this.router.navigate(['/dashboard']);
+            }
           }, 500);
         } else {
           this.messageService.add({

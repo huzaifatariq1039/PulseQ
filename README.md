@@ -1,3 +1,8 @@
+cd /home/saif/Downloads/PulseQ_backend/backend
+source venv/bin/activate
+uvicorn main:app --reload 
+
+
 # PulseQ Monorepo
 
 This repository contains the backend and frontend for PulseQ in a single monorepo.
@@ -59,13 +64,13 @@ From the `backend/` folder:
 
 ```bash
 source .venv/bin/activate
-uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+uvicorn app.main:app -
 ```
 
 The actual app entrypoint is `main.py`, so the working command is:
 
 ```bash
-uvicorn main:app --reload --host 127.0.0.1 --port 8000
+uvicorn main:app 
 ```
 
 ### Frontend

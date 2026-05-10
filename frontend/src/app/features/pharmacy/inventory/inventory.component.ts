@@ -19,6 +19,7 @@ import { takeUntil, debounceTime, distinctUntilChanged } from 'rxjs/operators';
 import { Medicine, MedicineStatus } from '../../../shared/models/medicine.model';
 import { PharmacySidebarComponent } from '../shared/components/pharmacy-sidebar/pharmacy-sidebar.component';
 import { AuthService } from '../../../core/services/auth.service';
+import { pharmacyPath } from '../../../core/utils/portal-path.util';
 
 import * as XLSX from 'xlsx';
 
@@ -249,9 +250,9 @@ export class InventoryComponent implements OnInit, OnDestroy {
         return map[status] ?? 'pi-circle';
     }
 
-    view(medicine: Medicine): void { this.router.navigate(['/view', medicine.id]); }
-    edit(medicine: Medicine): void { this.router.navigate(['/edit', medicine.id]); }
-    addMedicine(): void { this.router.navigate(['/add']); }
+    view(medicine: Medicine): void { this.router.navigate([pharmacyPath('view'), medicine.id]); }
+    edit(medicine: Medicine): void { this.router.navigate([pharmacyPath('edit'), medicine.id]); }
+    addMedicine(): void { this.router.navigate([pharmacyPath('add')]); }
 
     delete(medicine: Medicine): void {
         this.confirmationService.confirm({
