@@ -116,50 +116,53 @@ async def twilio_whatsapp_webhook(
         token.queue_opted_in_at   = now
         db.commit()
 
-        try:
-            from app.services.app_scheduler import get_scheduler
-            sch = get_scheduler()
-            if sch:
-                for job_id in [f"confirm_reminder:{token.id}", f"confirm_final:{token.id}"]:
-                    try:
-                        sch.remove_job(job_id)
-                    except Exception:
-                        pass
-        except Exception as e:
-            pass
-
         patient_name  = _safe_str(token.patient_name,  "Patient")
         hospital_name = _safe_str(token.hospital_name, "Clinic")
-        token_number  = _safe_str(token.token_number,  "0")
+        token_display = _safe_str(token.display_code or token.token_number, "0")
         wait_time     = _safe_int(token.estimated_wait_time, 0)
 
-        # ✅ FIX: Compare by token_number, NOT queue_position, to prevent walk-in crash
+        patients_ahead = 0
         try:
             patients_ahead = (
-                db.query(Token)
-                .filter(
-                    Token.doctor_id        == token.doctor_id,
-                    Token.hospital_id      == token.hospital_id,
-                    func.date(Token.appointment_date) == func.date(token.appointment_date),
-                    Token.token_number     < token.token_number, 
-                    Token.status.in_(["waiting", "confirmed", "pending", "in_queue"]),
-                )
-                .count()
+               db.query(Token)
+               .filter(
+                  Token.doctor_id   == token.doctor_id,
+                  Token.hospital_id == token.hospital_id,
+                  func.date(Token.appointment_date) == func.date(token.appointment_date),
+                  Token.token_number < token.token_number,
+                  Token.status.in_(["waiting", "confirmed", "pending", "in_queue"]),
             )
-
-            await send_template_message(
-                user_number,
-                "queue_update_alert",
-                [
-                    patient_name,           # {{1}} name
-                    str(patients_ahead),    # {{2}} patients ahead
-                    str(wait_time),         # {{3}} wait time
-                    hospital_name,          # {{4}} hospital name
-                    token_number,           # {{5}} token number
-                ],
-            )
+            .count()
+        )
         except Exception as e:
-            logger.error(f"queue_update_alert failed for token {token.id}: {e}", exc_info=True)
+            logger.error(f"[YES] patients_ahead query failed: {e}")
+
+    # ✅ LOG EVERYTHING BEFORE SENDING
+        logger.info(f"[YES] user_number={user_number}")
+        logger.info(f"[YES] patient_name={patient_name}")
+        logger.info(f"[YES] patients_ahead={patients_ahead}")
+        logger.info(f"[YES] wait_time={wait_time}")
+        logger.info(f"[YES] hospital_name={hospital_name}")
+        logger.info(f"[YES] token_display={token_display}")
+
+        try:
+            result = await send_template_message(
+               user_number,
+               "queue_update_alert",
+               [
+                  patient_name,
+                  str(patients_ahead),
+                  str(wait_time),
+                  hospital_name,
+                  token_display,
+                ],
+           )
+            logger.info(f"[YES] queue_update_alert result={result}")
+
+        except Exception as e:
+            logger.error(f"[YES] queue_update_alert FAILED: {e}", exc_info=True)
+
+        return Response(content=str(MessagingResponse()), media_type="application/xml")
 
         try:
             from app.services.message_scheduler import schedule_messages
