@@ -162,7 +162,7 @@ async def twilio_whatsapp_webhook(
         except Exception as e:
             logger.error(f"[YES] queue_update_alert FAILED: {e}", exc_info=True)
 
-        return Response(content=str(MessagingResponse()), media_type="application/xml")
+        # return Response(content=str(MessagingResponse()), media_type="application/xml")
 
         try:
             from app.services.message_scheduler import schedule_messages
@@ -170,7 +170,7 @@ async def twilio_whatsapp_webhook(
             token_dict = {k: v for k, v in token.__dict__.items() if not k.startswith("_")}
             token_dict["patient_name"]       = patient_name
             token_dict["hospital_name"]      = hospital_name
-            token_dict["token_number"]       = token_number
+            token_dict["token_number"]       = token_display
             token_dict["estimated_wait_time"] = wait_time
             token_dict["patient_phone"]      = user_number
 
