@@ -218,20 +218,40 @@ async def send_template_message(phone: str, template_name: str, params: list):
 
         if template_name == "queue_update_alert":
             if TWILIO_QUEUE_UPDATE_SID:
-                message = client.messages.create(
-                    from_=from_number,
-                    to=formatted_phone,
-                    content_sid=TWILIO_QUEUE_UPDATE_SID,
-                    content_variables=json.dumps({
-                        "1": str(params[0]) if params else "Patient",
-                        "2": str(params[1]) if len(params) > 1 else "0",
-                        "3": str(params[2]) if len(params) > 2 else "0",
-                        "4": str(params[3]) if len(params) > 3 else "Clinic",
-                        "5": str(params[4]) if len(params) > 4 else "Token"
-                    })
-                )
-                return message.sid
-
+               message = client.messages.create(
+                   from_=from_number,
+                   to=formatted_phone,
+                   content_sid=TWILIO_QUEUE_UPDATE_SID,
+                   content_variables=json.dumps({
+                       "1": str(params[0]) if params else "Patient",
+                       "2": str(params[1]) if len(params) > 1 else "0",
+                       "3": str(params[2]) if len(params) > 2 else "0",
+                       "4": str(params[3]) if len(params) > 3 else "Clinic",
+                       "5": str(params[4]) if len(params) > 4 else "Token"
+                   })
+               )
+               return message.sid 
+            else:
+        # ✅ FALLBACK — this was missing, causing silent failure
+                name     = str(params[0]) if params else "Patient"
+                ahead    = str(params[1]) if len(params) > 1 else "0"
+                wait     = str(params[2]) if len(params) > 2 else "0"
+                hospital = str(params[3]) if len(params) > 3 else "Clinic"
+                token_no = str(params[4]) if len(params) > 4 else "Token"
+                body = (
+                    f"Hello {name}!\n\n"
+                    f"Queue Update:\n"
+                    f"Patients ahead of you: {ahead}\n"
+                    f"Estimated wait: {wait} mins\n"
+                    f"Hospital: {hospital}\n"
+                    f"Your token: {token_no}\n\n"
+                    f"PulseQ"
+               )
+                return client.messages.create(
+                from_=from_number, 
+                to=formatted_phone, 
+                body=body
+                ).sid
         logger.warning(f"send_template_message: unknown template_name '{template_name}'")
         return None
 
