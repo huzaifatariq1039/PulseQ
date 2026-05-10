@@ -11,10 +11,22 @@ from app.db_models import User, Token
 from app.services.whatsapp_service import send_template_message
 from app.config import TWILIO_AUTH_TOKEN
 import logging
+import redis.asyncio as redis
+from app.config import REDIS_URL
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# ✅ Global Redis client for message deduplication
+_redis_client: Optional[redis.Redis] = None
+
+async def _get_redis_client() -> redis.Redis:
+    """Get or create Redis client for message deduplication."""
+    global _redis_client
+    if _redis_client is None:
+        _redis_client = await redis.from_url(REDIS_URL, decode_responses=True)
+    return _redis_client
 
 def _clean_phone(raw: str) -> str:
     return raw.replace("whatsapp:", "").strip()
@@ -36,16 +48,59 @@ def _safe_int(value, fallback: int = 0) -> int:
         return fallback
 
 
+# ✅ MESSAGE DEDUPLICATION HELPER
+async def _is_message_already_sent(phone: str, template_name: str) -> bool:
+    """Check if message was already sent (Redis cache)."""
+    try:
+        redis_client = await _get_redis_client()
+        message_key = f"message:{phone}:{template_name}"
+        result = await redis_client.get(message_key)
+        return result is not None
+    except Exception as e:
+        logger.error(f"Failed to check message cache: {e}")
+        return False
+
+
+async def _mark_message_sent(phone: str, template_name: str, ttl_seconds: int = 86400) -> None:
+    """Mark message as sent in Redis (24 hour TTL by default)."""
+    try:
+        redis_client = await _get_redis_client()
+        message_key = f"message:{phone}:{template_name}"
+        await redis_client.setex(message_key, ttl_seconds, "sent")
+        logger.info(f"Marked message as sent: {message_key}")
+    except Exception as e:
+        logger.error(f"Failed to mark message as sent: {e}")
+
+
+# ✅ PHONE NORMALIZATION
+def normalize_phone(phone: str) -> str:
+    """Normalize phone to +92XXXXXXXXXX format."""
+    if not phone:
+        return phone
+    phone = str(phone).strip().replace(" ", "").replace("-", "")
+    if phone.startswith("0") and len(phone) == 11:
+        return "+92" + phone[1:]  # 03239207671 → +923239207671
+    if not phone.startswith("+"):
+        return "+" + phone
+    return phone
+
+
 @router.post("/twilio/webhook")
 async def twilio_whatsapp_webhook(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    """Twilio WhatsApp Webhook — handles YES / NO replies from patients."""
+    """Twilio WhatsApp Webhook — handles YES / NO replies from patients.
+    
+    ✅ Now includes:
+    - Phone number normalization
+    - Redis message deduplication
+    - Proper message scheduling without duplicates
+    """
     signature = request.headers.get("X-Twilio-Signature", "")
     body      = await request.body()
 
-    webhook_url = "https://api.pulseq.health/api/v1/webhooks/twilio/webhook"
+    webhook_url = "https://app.pulseq.health/api/v1/webhooks/twilio/webhook"
     is_prod      = os.getenv("ENVIRONMENT") == "production"
 
     if is_prod and signature:
@@ -78,22 +133,26 @@ async def twilio_whatsapp_webhook(
     digits       = "".join(c for c in user_number if c.isdigit())
     local_suffix = digits[-10:] if len(digits) >= 10 else digits
 
+    # ✅ NORMALIZE INCOMING PHONE BEFORE SEARCHING
+    normalized_incoming = normalize_phone(user_number)
+
     twiml_response = MessagingResponse()
     today = datetime.utcnow().date()
     
-    # ✅ FIX: Removed "pending" from exclusion - now it finds pending tokens too
+    # ✅ FIX: Search with normalized phone AND explicit whitelist of statuses
     token = (
         db.query(Token)
         .outerjoin(User, Token.patient_id == User.id)
         .filter(
             or_(
+                Token.patient_phone == normalized_incoming,  # ✅ Exact match with normalized
                 Token.patient_phone.like(f"%{local_suffix}"),
                 Token.patient_phone.like(f"%{digits}"),
                 User.phone.like(f"%{local_suffix}"),
                 User.phone.like(f"%{digits}"),
             )
         )
-        .filter(Token.status.in_(["pending", "waiting", "confirmed", "in_queue"]))  # ✅ FIXED: Explicit whitelist
+        .filter(Token.status.in_(["pending", "waiting", "confirmed", "in_queue"]))  # ✅ Explicit whitelist
         .filter(func.date(Token.appointment_date) == today)
         .order_by(Token.created_at.desc())
         .first()
@@ -106,7 +165,7 @@ async def twilio_whatsapp_webhook(
     now = datetime.utcnow()
 
     # ── YES ────────────────────────────────────────────────────────────────────
-    if effective_message in ["yes", "y", "YES"]:
+    if effective_message in ["yes", "y"]:
         token.status              = "confirmed"
         token.confirmed           = True
         token.confirmed_at        = now
@@ -137,8 +196,7 @@ async def twilio_whatsapp_webhook(
         except Exception as e:
             logger.error(f"[YES] patients_ahead query failed: {e}")
 
-    # ✅ LOG EVERYTHING BEFORE SENDING
-        logger.info(f"[YES] user_number={user_number}")
+        logger.info(f"[YES] user_number={user_number}, normalized={normalized_incoming}")
         logger.info(f"[YES] patient_name={patient_name}")
         logger.info(f"[YES] patients_ahead={patients_ahead}")
         logger.info(f"[YES] wait_time={wait_time}")
@@ -146,23 +204,28 @@ async def twilio_whatsapp_webhook(
         logger.info(f"[YES] token_display={token_display}")
 
         try:
-            result = await send_template_message(
-               user_number,
-               "queue_update_alert",
-               [
-                  patient_name,
-                  str(patients_ahead),
-                  str(wait_time),
-                  hospital_name,
-                  token_display,
-                ],
-           )
-            logger.info(f"[YES] queue_update_alert result={result}")
+            # ✅ CHECK IF MESSAGE ALREADY SENT (deduplication)
+            if await _is_message_already_sent(normalized_incoming, "queue_update_alert"):
+                logger.warning(f"[YES] queue_update_alert already sent to {normalized_incoming}, skipping")
+            else:
+                result = await send_template_message(
+                   normalized_incoming,  # ✅ Use normalized phone
+                   "queue_update_alert",
+                   [
+                      patient_name,
+                      str(patients_ahead),
+                      str(wait_time),
+                      hospital_name,
+                      token_display,
+                   ],
+               )
+                logger.info(f"[YES] queue_update_alert result={result}")
+                
+                # ✅ MARK MESSAGE AS SENT IN REDIS
+                await _mark_message_sent(normalized_incoming, "queue_update_alert")
 
         except Exception as e:
             logger.error(f"[YES] queue_update_alert FAILED: {e}", exc_info=True)
-
-        # return Response(content=str(MessagingResponse()), media_type="application/xml")
 
         try:
             from app.services.message_scheduler import schedule_messages
@@ -172,7 +235,7 @@ async def twilio_whatsapp_webhook(
             token_dict["hospital_name"]      = hospital_name
             token_dict["token_number"]       = token_display
             token_dict["estimated_wait_time"] = wait_time
-            token_dict["patient_phone"]      = user_number
+            token_dict["patient_phone"]      = normalized_incoming  # ✅ Use normalized phone
 
             # ✅ FIX: Pass is_webhook_trigger=True to prevent duplicate spam
             await schedule_messages(token_dict, is_webhook_trigger=True)
@@ -198,11 +261,15 @@ async def twilio_whatsapp_webhook(
             pass
 
         try:
-            await send_template_message(
-                user_number,
-                "cancelled",
-                [_safe_str(token.patient_name, "Patient")],
-            )
+            # ✅ CHECK IF CANCELLATION MESSAGE ALREADY SENT
+            if not await _is_message_already_sent(normalized_incoming, "cancelled"):
+                await send_template_message(
+                    normalized_incoming,  # ✅ Use normalized phone
+                    "cancelled",
+                    [_safe_str(token.patient_name, "Patient")],
+                )
+                # ✅ MARK AS SENT
+                await _mark_message_sent(normalized_incoming, "cancelled")
         except Exception as e:
             twiml_response.message("Your appointment has been cancelled. Thank you.")
             return Response(content=str(twiml_response), media_type="application/xml")
@@ -214,3 +281,12 @@ async def twilio_whatsapp_webhook(
         twiml_response.message("Please reply YES to confirm or NO to cancel.")
 
     return Response(content=str(twiml_response), media_type="application/xml")
+
+
+# ✅ CLEANUP - Add to app shutdown
+async def close_redis():
+    """Close Redis connection on app shutdown."""
+    global _redis_client
+    if _redis_client:
+        await _redis_client.close()
+        _redis_client = None
