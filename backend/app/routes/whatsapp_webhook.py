@@ -48,9 +48,7 @@ def _safe_int(value, fallback: int = 0) -> int:
         return fallback
 
 
-# ✅ MESSAGE DEDUPLICATION HELPER
 async def _is_message_already_sent(phone: str, template_name: str) -> bool:
-    """Check if message was already sent (Redis cache)."""
     try:
         redis_client = await _get_redis_client()
         message_key = f"message:{phone}:{template_name}"
@@ -62,7 +60,6 @@ async def _is_message_already_sent(phone: str, template_name: str) -> bool:
 
 
 async def _mark_message_sent(phone: str, template_name: str, ttl_seconds: int = 86400) -> None:
-    """Mark message as sent in Redis (24 hour TTL by default)."""
     try:
         redis_client = await _get_redis_client()
         message_key = f"message:{phone}:{template_name}"
@@ -72,14 +69,12 @@ async def _mark_message_sent(phone: str, template_name: str, ttl_seconds: int = 
         logger.error(f"Failed to mark message as sent: {e}")
 
 
-# ✅ PHONE NORMALIZATION
 def normalize_phone(phone: str) -> str:
-    """Normalize phone to +92XXXXXXXXXX format."""
     if not phone:
         return phone
     phone = str(phone).strip().replace(" ", "").replace("-", "")
     if phone.startswith("0") and len(phone) == 11:
-        return "+92" + phone[1:]  # 03239207671 → +923239207671
+        return "+92" + phone[1:]
     if not phone.startswith("+"):
         return "+" + phone
     return phone
@@ -95,7 +90,7 @@ async def twilio_whatsapp_webhook(
     signature = request.headers.get("X-Twilio-Signature", "")
     body = await request.body()
 
-    # ✅ STATIC URL for Twilio signature validation
+    # ✅ Build URL from forwarded headers (load balancer aware)
     forwarded_host = request.headers.get("X-Forwarded-Host", "")
     forwarded_proto = request.headers.get("X-Forwarded-Proto", "http")
     if forwarded_host:
@@ -103,7 +98,7 @@ async def twilio_whatsapp_webhook(
     else:
         webhook_url = "http://pulseq-api-env.eba-i2evcmmi.ap-south-1.elasticbeanstalk.com/api/v1/webhooks/twilio/webhook"
 
-    logger.info(f"[WEBHOOK] Validating against URL: {webhook_url}")
+    logger.info(f"[WEBHOOK] Incoming request, URL: {webhook_url}")
 
     is_prod = os.getenv("ENVIRONMENT") == "production"
 
@@ -114,8 +109,6 @@ async def twilio_whatsapp_webhook(
 
             validator = RequestValidator(TWILIO_AUTH_TOKEN)
             form_data_raw = {k: v[0] for k, v in parse_qs(body.decode("utf-8")).items()}
-
-            logger.info(f"[WEBHOOK] Validating signature against URL: {webhook_url}")
 
             if not validator.validate(webhook_url, form_data_raw, signature):
                 logger.warning(f"[WEBHOOK] Invalid Twilio signature for URL: {webhook_url}")
@@ -142,14 +135,12 @@ async def twilio_whatsapp_webhook(
     digits       = "".join(c for c in user_number if c.isdigit())
     local_suffix = digits[-10:] if len(digits) >= 10 else digits
 
-    # ✅ NORMALIZE INCOMING PHONE BEFORE SEARCHING
     normalized_incoming = normalize_phone(user_number)
     logger.info(f"[WEBHOOK] Received message from: {normalized_incoming}, text: {effective_message}")
 
     twiml_response = MessagingResponse()
     today = datetime.utcnow().date()
 
-    # ✅ Search with normalized phone AND explicit whitelist of statuses
     token = (
         db.query(Token)
         .outerjoin(User, Token.patient_id == User.id)
@@ -191,7 +182,7 @@ async def twilio_whatsapp_webhook(
         db.commit()
         logger.info(f"[YES] Token status updated to CONFIRMED: {token.token_number}")
 
-        # Cancel reminder jobs
+        # Cancel any pending reminder jobs
         try:
             from app.services.app_scheduler import get_scheduler
             sch = get_scheduler()
@@ -225,12 +216,11 @@ async def twilio_whatsapp_webhook(
         except Exception as e:
             logger.error(f"[YES] patients_ahead query failed: {e}")
 
-        logger.info(f"[YES] user_number={normalized_incoming}")
-        logger.info(f"[YES] patient_name={patient_name}, patients_ahead={patients_ahead}, wait_time={wait_time}, hospital={hospital_name}, token={token_display}")
+        logger.info(f"[YES] patient_name={patient_name}, patients_ahead={patients_ahead}, wait_time={wait_time}")
 
         try:
             if await _is_message_already_sent(normalized_incoming, "queue_update_alert"):
-                logger.warning(f"[YES] queue_update_alert already sent to {normalized_incoming}, skipping")
+                logger.warning(f"[YES] queue_update_alert already sent, skipping")
             else:
                 result = await send_template_message(
                     normalized_incoming,
@@ -243,28 +233,13 @@ async def twilio_whatsapp_webhook(
                         token_display,
                     ],
                 )
-                logger.info(f"[YES] queue_update_alert sent successfully: sid={result}")
+                logger.info(f"[YES] queue_update_alert sent: sid={result}")
                 await _mark_message_sent(normalized_incoming, "queue_update_alert")
 
         except Exception as e:
             logger.error(f"[YES] Failed to send queue_update_alert: {e}", exc_info=True)
 
-        # Schedule follow-up messages
-        try:
-            from app.services.message_scheduler import schedule_messages
-            token_dict = {k: v for k, v in token.__dict__.items() if not k.startswith("_")}
-            token_dict.update({
-                "patient_name":        patient_name,
-                "hospital_name":       hospital_name,
-                "token_number":        token_display,
-                "estimated_wait_time": wait_time,
-                "patient_phone":       normalized_incoming,
-            })
-            await schedule_messages(token_dict, is_webhook_trigger=True)
-            logger.info(f"[YES] Follow-up sequence scheduled for token {token.id}")
-        except Exception as e:
-            logger.error(f"[YES] schedule_messages failed: {e}", exc_info=True)
-
+        # ✅ NO ARQ - no schedule_messages call
         return Response(content=str(MessagingResponse()), media_type="application/xml")
 
     # ── NO / CANCEL ────────────────────────────────────────────────────────────
@@ -292,7 +267,7 @@ async def twilio_whatsapp_webhook(
                     "cancelled",
                     [_safe_str(token.patient_name, "Patient")],
                 )
-                logger.info(f"[NO] Cancellation message sent to {normalized_incoming}")
+                logger.info(f"[NO] Cancellation message sent")
                 await _mark_message_sent(normalized_incoming, "cancelled")
         except Exception as e:
             logger.error(f"[NO] Failed to send cancellation message: {e}")
