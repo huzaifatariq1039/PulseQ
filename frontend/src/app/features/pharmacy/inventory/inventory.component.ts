@@ -253,6 +253,7 @@ export class InventoryComponent implements OnInit, OnDestroy {
     view(medicine: Medicine): void { this.router.navigate([pharmacyPath('view'), medicine.id]); }
     edit(medicine: Medicine): void { this.router.navigate([pharmacyPath('edit'), medicine.id]); }
     addMedicine(): void { this.router.navigate([pharmacyPath('add')]); }
+    goToTrash(): void { this.router.navigate([pharmacyPath('trash')]); }
 
     delete(medicine: Medicine): void {
         this.confirmationService.confirm({

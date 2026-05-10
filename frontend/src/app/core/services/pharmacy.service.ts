@@ -2,6 +2,7 @@ import { Injectable, signal } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { BehaviorSubject, Observable, of } from 'rxjs';
 import { tap, catchError, finalize } from 'rxjs/operators';
+import { toObservable } from '@angular/core/rxjs-interop';
 import { environment } from '../../../environments/environment';
 import { Medicine } from '../../shared/models/medicine.model';
 
@@ -63,6 +64,11 @@ export class PharmacyService {
 
   readonly medicines = signal<Medicine[]>([]);
   readonly loading = signal<boolean>(false);
+
+  // Convert medicines signal to observable for backward compatibility
+  get medicines$(): Observable<Medicine[]> {
+    return toObservable(this.medicines);
+  }
 
   // ============================================================
   // Sales Data
