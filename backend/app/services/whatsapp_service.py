@@ -223,7 +223,6 @@ async def send_template_message(phone: str, template_name: str, params: list):
 
         if template_name == "queue_update_alert":
             if TWILIO_QUEUE_UPDATE_SID:
-                # ✅ Use approved WhatsApp template
                 message = client.messages.create(
                     from_=from_number,
                     to=formatted_phone,
@@ -238,7 +237,6 @@ async def send_template_message(phone: str, template_name: str, params: list):
                 )
                 return message.sid
             else:
-                # ✅ Fallback plain text — correct indentation
                 name     = str(params[0]) if params else "Patient"
                 ahead    = str(params[1]) if len(params) > 1 else "0"
                 wait     = str(params[2]) if len(params) > 2 else "0"
@@ -259,7 +257,30 @@ async def send_template_message(phone: str, template_name: str, params: list):
                     body=body
                 ).sid
 
-        # Only reached if template_name matched none of the above
+        # --- Updated Thank You Template based on your image ---
+        if template_name == "template":
+            if TWILIO_THANKYOU_SID:
+                message = client.messages.create(
+                    from_=from_number,
+                    to=formatted_phone,
+                    content_sid=TWILIO_THANKYOU_SID,
+                    content_variables=json.dumps({
+                        "1": str(params[0]) if params else "Clinic"  # maps to {{1}} in image
+                    })
+                )
+                return message.sid
+            else:
+                # Text-only fallback matching the image flow
+                location = str(params[0]) if params else "the clinic"
+                body = (
+                    f"Thankyou for using PulseQ\n\n"
+                    f"For future appointments in {location} use this link:\n"
+                    f"https://pulseq.blog/\n\n"
+                    f"Do you like our service?\n\nPulseQ"
+                )
+                return client.messages.create(from_=from_number, to=formatted_phone, body=body).sid
+        # ------------------------------------------------------
+
         logger.warning(f"send_template_message: unknown template_name '{template_name}'")
         return None
 
