@@ -14,26 +14,7 @@
 
 export type PortalType = 'main' | 'patient' | 'doctor' | 'pharmacy' | 'reception' | 'admin' | 'demo';
 
-/**
- * Detects the active portal based on hostname and URL
- * 
- * Subdomain mapping:
- * - patient.pulseq.health -> 'patient'
- * - doctor.pulseq.health -> 'doctor'
- * - pharmacy.pulseq.health -> 'pharmacy'
- * - reception.pulseq.health -> 'reception'
- * - admin.pulseq.health -> 'admin'
- * - demo.pulseq.health -> 'demo'
- * - pulseq.health / www.pulseq.health -> 'main'
- * - localhost:4200 with /patient path -> 'patient'
- * - localhost:4200 with /staff path -> 'main'
- * 
- * ⚠️ Returns 'main' if called during SSR (window is undefined)
- * 
- * @returns The detected portal type
- */
 export function detectPortal(): PortalType {
-  // ✅ SSR-safe: Return 'main' immediately if window is not available (server-side rendering)
   if (typeof window === 'undefined') {
     return 'main';
   }
@@ -42,21 +23,6 @@ export function detectPortal(): PortalType {
     const hostname = window.location.hostname.toLowerCase();
     const pathname = window.location.pathname;
 
-    // Extract subdomain from hostname
-    // Examples: patient.pulseq.health -> 'patient', pulseq.health -> ''
-    const parts = hostname.split('.');
-    let subdomain = '';
-
-    if (parts.length > 2) {
-      // Example: patient.pulseq.health has 3 parts: [patient, pulseq, health]
-      subdomain = parts[0];
-    } else if (parts.length === 2) {
-      // Example: localhost:4200, pulseq.health
-      // For these, check the path instead
-      subdomain = '';
-    }
-
-    // Map subdomain to portal
     const subdomainMap: Record<string, PortalType> = {
       'patient': 'patient',
       'doctor': 'doctor',
@@ -66,32 +32,35 @@ export function detectPortal(): PortalType {
       'demo': 'demo'
     };
 
-    if (subdomain && subdomain in subdomainMap) {
-      return subdomainMap[subdomain];
+    // ✅ FIX: Loop through ALL hostname parts, not just parts[0]
+    // admin.pulseq.health → checks 'admin', 'pulseq', 'health' → finds 'admin' ✅
+    const parts = hostname.split('.');
+    for (const part of parts) {
+      if (part in subdomainMap) {
+        return subdomainMap[part];
+      }
     }
 
-    // If no subdomain matched, check the path
-    // This handles localhost:4200/patient, localhost:4200/staff/doctor, etc.
+    // Path-based detection for localhost
     const pathSegments = pathname.split('/').filter(s => s.length > 0);
-    
-    if (pathSegments.length === 0) {
-      return 'main';
-    }
+
+    if (pathSegments.length === 0) return 'main';
 
     const firstSegment = pathSegments[0].toLowerCase();
 
-    // Exact match for first-level paths
     if (firstSegment in subdomainMap) {
       return subdomainMap[firstSegment];
     }
 
-    // Special case: /staff/xxx paths on main domain should use main portal
-    // (landing page will handle routing to doctor, reception, etc. sub-routes)
+    // /staff/admin now returns 'admin' instead of 'main'
     if (firstSegment === 'staff') {
+      const secondSegment = pathSegments[1]?.toLowerCase();
+      if (secondSegment && secondSegment in subdomainMap) {
+        return subdomainMap[secondSegment];
+      }
       return 'main';
     }
 
-    // Default to main if nothing matches
     return 'main';
   } catch (error) {
     console.warn('Error detecting portal, defaulting to main:', error);
@@ -99,25 +68,14 @@ export function detectPortal(): PortalType {
   }
 }
 
-/**
- * Gets the portal name for the current context
- * Used for logging and debugging
- */
 export function getPortalName(): string {
   return detectPortal();
 }
 
-/**
- * Checks if the current context is a specific portal
- */
 export function isPortal(portal: PortalType): boolean {
   return detectPortal() === portal;
 }
 
-/**
- * Debug function to log portal detection info
- * Call this in development to understand routing decisions
- */
 export function logPortalDetection(): void {
   if (typeof window !== 'undefined') {
     const portal = detectPortal();
