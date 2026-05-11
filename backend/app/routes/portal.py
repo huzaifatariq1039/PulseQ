@@ -897,7 +897,25 @@ async def receptionist_create_walkin_token(
         except Exception as e:
             logger.error(f"Failed to send WhatsApp walk-in confirmation for token {token_id}: {e}")
 
-    return ok(data={"token_id": token_id})
+    return ok(data={
+            "token_id": token_id,
+            "token_number": display_code,
+            "hospital_name": hospital_name_str,
+            "department": reason,
+            "doctor_name": doctor.name,
+            "patient_name": patient_name,
+            "phone": phone,
+            "mrn": mrn,
+            "age": age,
+            "gender": gender,
+            "payment": "UNPAID",
+            "status": "PENDING",
+            "consultation_fee": doc_fee,
+            "token_fee": token_fee,
+            "total_fee": total_fee,
+            "estimated_wait_time": estimated_wait_time
+        }, 
+        message="Walk-in token created via AI Engine")
 
 @router.post("/receptionist/tokens/{token_id}/skip", dependencies=[Depends(require_roles("receptionist", "patient", "admin"))])
 async def receptionist_skip_token(
