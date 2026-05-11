@@ -552,7 +552,20 @@ export class ReceptionQueueComponent implements OnInit, OnDestroy {
     }
 
     toggleSidebar(): void { this.sidebarOpen = !this.sidebarOpen; }
-    // REPLACEMENT: downloadSlip() — for reception-queue.component.ts
+
+    private drawRoundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.lineTo(x + w - r, y);
+        ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+        ctx.lineTo(x + w, y + h - r);
+        ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+        ctx.lineTo(x + r, y + h);
+        ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+        ctx.lineTo(x, y + r);
+        ctx.quadraticCurveTo(x, y, x + r, y);
+        ctx.closePath();
+    }
 
     downloadSlip(row: Patient): void {
         this.messageService.add({ severity: 'info', summary: 'Downloading', detail: 'Generating slip...', life: 2000 });
@@ -565,14 +578,18 @@ export class ReceptionQueueComponent implements OnInit, OnDestroy {
             const ctx = canvas.getContext('2d')!;
 
             const drawSlip = (logoImg: HTMLImageElement | null) => {
+                // ── Background ──────────────────────────────────────────────────────────
                 ctx.fillStyle = '#ffffff';
                 ctx.fillRect(0, 0, W, H);
 
+                // ── Outer border ────────────────────────────────────────────────────────
                 ctx.strokeStyle = '#000000';
                 ctx.lineWidth = 2;
                 ctx.strokeRect(18, 18, W - 36, H - 36);
 
                 let y = 40;
+
+                // ── Logo ────────────────────────────────────────────────────────────────
                 if (logoImg) {
                     ctx.drawImage(logoImg, W / 2 - 36, y, 72, 72);
                     y += 80;
@@ -580,6 +597,7 @@ export class ReceptionQueueComponent implements OnInit, OnDestroy {
                     y += 12;
                 }
 
+                // ── Hospital name ────────────────────────────────────────────────────────
                 ctx.fillStyle = '#000000';
                 ctx.font = 'bold 17px Arial';
                 ctx.textAlign = 'center';
@@ -591,38 +609,46 @@ export class ReceptionQueueComponent implements OnInit, OnDestroy {
                 ctx.fillText('Soan Gardens, Islamabad  |  +92 335 2015268', W / 2, y);
                 y += 28;
 
+                // ── Divider ──────────────────────────────────────────────────────────────
                 ctx.strokeStyle = '#000000';
                 ctx.lineWidth = 1;
                 ctx.beginPath(); ctx.moveTo(36, y); ctx.lineTo(W - 36, y); ctx.stroke();
                 y += 18;
 
+                // ── "TOKEN SLIP" heading ─────────────────────────────────────────────────
                 ctx.font = 'bold 11px Arial';
                 ctx.fillStyle = '#000000';
                 ctx.textAlign = 'center';
                 ctx.fillText('TOKEN SLIP', W / 2, y);
                 y += 28;
 
-                // Meta block (like receipt header)
-                const drawMeta = (label: string, value: string, metaY: number) => {
-                    ctx.font = '11px Arial';
-                    ctx.fillStyle = '#555555';
-                    ctx.textAlign = 'left';
-                    ctx.fillText(label, 48, metaY);
-                    ctx.font = 'bold 11px Arial';
-                    ctx.fillStyle = '#000000';
-                    ctx.fillText(value, 148, metaY);
-                };
+                // ── Large token number (same as patient ticket) ──────────────────────────
+                ctx.font = 'bold 72px Arial';
+                ctx.fillStyle = '#000000';
+                ctx.textAlign = 'center';
+                ctx.fillText(row.token || '-', W / 2, y + 60);
+                y += 80;
 
-                drawMeta('Patient:', row.name || '-', y); y += 18;
-                drawMeta('MRN:', row.mrn || '-', y); y += 18;
-                drawMeta('Token No:', row.token || '-', y); y += 18;
-                drawMeta('Service By:', row.doctorName || 'Any Doctor', y); y += 26;
+                // ── Status pill ──────────────────────────────────────────────────────────
+                const status = (row.status || 'pending').toUpperCase();
+                const pillW = 120, pillH = 26, pillX = W / 2 - 60;
+                ctx.strokeStyle = '#000000';
+                ctx.lineWidth = 1.5;
+                this.drawRoundRect(ctx, pillX, y, pillW, pillH, 4);
+                ctx.stroke();
+                ctx.font = 'bold 10px Arial';
+                ctx.fillStyle = '#000000';
+                ctx.textAlign = 'center';
+                ctx.fillText(status, W / 2, y + 17);
+                y += 44;
 
+                // ── Light divider ─────────────────────────────────────────────────────────
                 ctx.strokeStyle = '#cccccc';
                 ctx.lineWidth = 1;
                 ctx.beginPath(); ctx.moveTo(36, y); ctx.lineTo(W - 36, y); ctx.stroke();
-                y += 18;
+                y += 20;
 
+                // ── Helpers ──────────────────────────────────────────────────────────────
                 const ROW_H = 26;
 
                 const drawRow = (label: string, value: string, rowY: number, shaded: boolean) => {
@@ -650,16 +676,21 @@ export class ReceptionQueueComponent implements OnInit, OnDestroy {
                     ctx.beginPath(); ctx.moveTo(36, headerY + 6); ctx.lineTo(W - 36, headerY + 6); ctx.stroke();
                 };
 
-                drawSection('Appointment', y); y += 18;
-                drawRow('Department', row.department || '-', y, false); y += ROW_H;
-                drawRow('Doctor', row.doctorName || 'Any', y, true); y += ROW_H + 10;
+                // ── Appointment Info ──────────────────────────────────────────────────────
+                drawSection('Appointment Info', y); y += 18;
+                drawRow('Hospital', 'Rufayda Health Complex', y, false); y += ROW_H;
+                drawRow('Department', row.department || '-', y, true); y += ROW_H;
+                drawRow('Doctor', row.doctorName || 'Any', y, false); y += ROW_H + 10;
 
+                // ── Patient Details ───────────────────────────────────────────────────────
                 drawSection('Patient Details', y); y += 18;
                 drawRow('Name', row.name || '-', y, false); y += ROW_H;
+                drawRow('MRN', row.mrn || '-', y, true); y += ROW_H;
+                drawRow('Phone', row.phone || '-', y, false); y += ROW_H;
                 drawRow('Age', (row.age ?? '-') + ' years', y, true); y += ROW_H;
-                drawRow('Gender', row.gender || '-', y, false); y += ROW_H;
-                drawRow('Phone', row.phone || '-', y, true); y += ROW_H + 10;
+                drawRow('Gender', row.gender || '-', y, false); y += ROW_H + 10;
 
+                // ── Reason for Visit ──────────────────────────────────────────────────────
                 if (row.reason) {
                     drawSection('Reason for Visit', y); y += 18;
                     ctx.font = '10px Arial';
@@ -677,9 +708,7 @@ export class ReceptionQueueComponent implements OnInit, OnDestroy {
                     y += 10;
                 }
 
-                drawSection('Payment Summary', y); y += 18;
-                drawRow('Payment Status', (row.paymentStatus || 'unpaid').toUpperCase(), y, false); y += ROW_H + 10;
-
+                // ── Bottom divider & footer ───────────────────────────────────────────────
                 ctx.strokeStyle = '#000000';
                 ctx.lineWidth = 1;
                 ctx.beginPath(); ctx.moveTo(36, H - 56); ctx.lineTo(W - 36, H - 56); ctx.stroke();
@@ -690,6 +719,7 @@ export class ReceptionQueueComponent implements OnInit, OnDestroy {
                 ctx.fillText('Please keep this slip for your records.  For assistance, contact reception.', W / 2, H - 38);
                 ctx.fillText('Rufayda Health Complex  -  Soan Gardens, Islamabad', W / 2, H - 22);
 
+                // ── Export ───────────────────────────────────────────────────────────────
                 canvas.toBlob((blob) => {
                     if (!blob) return;
                     const url = URL.createObjectURL(blob);
@@ -708,7 +738,6 @@ export class ReceptionQueueComponent implements OnInit, OnDestroy {
             img.src = 'assets/rufaydaLogo.jpg';
         }, 500);
     }
-
     private getStatusColor(status: string): string {
         const statusColors: { [key: string]: string } = {
             'pending': '#f97316',
