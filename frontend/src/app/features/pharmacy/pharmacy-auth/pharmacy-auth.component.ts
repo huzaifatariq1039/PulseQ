@@ -64,7 +64,7 @@ export class PharmacyAuthComponent implements OnInit {
           });
           setTimeout(() => {
             const isLocalhost = window.location.hostname === 'localhost' ||
-                                window.location.hostname === '127.0.0.1';
+              window.location.hostname === '127.0.0.1';
 
             if (isLocalhost) {
               this.router.navigate(['/staff/pharmacy/dashboard']);
@@ -91,9 +91,5 @@ export class PharmacyAuthComponent implements OnInit {
         });
       }
     });
-  }
-
-  goBack() {
-    this.router.navigate(['/']);
   }
 }

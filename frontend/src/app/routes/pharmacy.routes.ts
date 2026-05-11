@@ -57,5 +57,26 @@ export const pharmacyRoutes: Routes = [
             import('../features/pharmacy/medicine-form/medicine-form.component')
                 .then(m => m.MedicineFormComponent),
         canActivate: [authGuard]
+    },
+    {
+        path: 'invoices',
+        loadComponent: () =>
+            import('../features/pharmacy/invoices/invoices.component')
+                .then(m => m.InvoicesComponent),
+        canActivate: [authGuard]
+    },
+    {
+        path: 'invoices/create',
+        loadComponent: () =>
+            import('../features/pharmacy/invoices/create-invoice/create-invoice.component')
+                .then(m => m.CreateInvoiceComponent),
+        canActivate: [authGuard]
+    },
+    {
+        path: 'invoices/trash',
+        loadComponent: () =>
+            import('../features/pharmacy/invoices/invoice-trash/invoice-trash.component')
+                .then(m => m.InvoiceTrashComponent),
+        canActivate: [authGuard]
     }
 ];

@@ -225,7 +225,7 @@ export class HistoryDetailComponent implements OnInit, OnDestroy {
           this.messageService.add({
             severity: 'info',
             summary: 'Information',
-            detail: 'Your rating has been saved. Please refresh the page to see it.',
+            detail: 'Your rating has been saved.',
             life: 3000
           });
           return;

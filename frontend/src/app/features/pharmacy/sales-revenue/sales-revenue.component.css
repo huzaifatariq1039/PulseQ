@@ -319,7 +319,8 @@
 	border-radius: 20px;
 	border: 1px solid #eef2f7;
 	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.04);
-	overflow: hidden;
+	/* KEY FIX: removed overflow:hidden so the chart tooltip/bottom is never clipped */
+	overflow: visible;
 }
 
 .chart-card-header {
@@ -369,13 +370,20 @@
 
 /* ── CHART BODY ── */
 .chart-body {
-	padding: 1rem 1.25rem 1.25rem;
-	height: 260px;
+	padding: 1rem 1.25rem 1.5rem;
+	/* extra bottom padding so labels aren't cut */
+	height: 300px;
+	/* increased from 260px for more breathing room */
+	position: relative;
+	overflow: visible;
+	/* never clip the canvas */
 }
 
-/* Line chart canvas fill */
-:host ::ng-deep .chart-line p-chart,
-:host ::ng-deep .chart-line canvas {
+/* Line chart — make p-chart fill the body */
+:host ::ng-deep .chart-line .chart-body>p-chart,
+:host ::ng-deep .chart-line .chart-body>p-chart>div,
+:host ::ng-deep .chart-line .chart-body canvas {
+	display: block;
 	width: 100% !important;
 	height: 100% !important;
 }
@@ -413,7 +421,8 @@
 	align-items: center;
 	justify-content: center;
 	gap: 1.25rem;
-	height: 260px;
+	height: 300px;
+	/* match updated line chart height */
 }
 
 :host ::ng-deep .chart-donut p-chart {

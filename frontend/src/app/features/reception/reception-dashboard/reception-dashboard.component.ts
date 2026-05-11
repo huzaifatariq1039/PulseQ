@@ -786,41 +786,190 @@ export class ReceptionDashboardComponent implements OnInit, OnDestroy {
     this.messageService.add({ severity: 'info', summary: 'Downloading', detail: 'Generating slip...', life: 2000 });
     setTimeout(() => {
       const canvas = document.createElement('canvas');
-      canvas.width = 500;
-      canvas.height = 600;
+      canvas.width = 600;
+      canvas.height = 900;
       const ctx = canvas.getContext('2d');
+
       if (ctx) {
-        ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = '#2563eb'; ctx.fillRect(0, 0, canvas.width, 8);
-        ctx.fillStyle = '#000000'; ctx.font = 'bold 72px Arial'; ctx.textAlign = 'center';
-        ctx.fillText(row.token || '', canvas.width / 2, 120);
-        ctx.font = '14px Arial'; ctx.fillStyle = '#666666'; ctx.textAlign = 'center';
-        let yPos = 170; const lineHeight = 22;
-        ctx.fillText(`Hospital: PulseQ Hospital`, canvas.width / 2, yPos); yPos += lineHeight;
-        ctx.fillText(`Department: ${row.department || '-'}`, canvas.width / 2, yPos); yPos += lineHeight;
-        ctx.fillText(`Doctor: ${(row as any).doctorName || 'Any'}`, canvas.width / 2, yPos); yPos += lineHeight;
-        ctx.fillText(`Name: ${row.name || '-'}`, canvas.width / 2, yPos); yPos += lineHeight;
-        ctx.fillText(`Phone: ${row.phone || '-'}`, canvas.width / 2, yPos); yPos += lineHeight;
-        ctx.fillText(`MRN: ${(row as any).mrn || '-'}`, canvas.width / 2, yPos); yPos += lineHeight;
-        ctx.fillText(`Age: ${row.age || '-'}`, canvas.width / 2, yPos); yPos += lineHeight;
-        ctx.fillText(`Gender: ${row.gender || '-'}`, canvas.width / 2, yPos); yPos += lineHeight;
-        ctx.fillText(`Payment: ${(row.paymentStatus || 'unpaid').toUpperCase()}`, canvas.width / 2, yPos); yPos += lineHeight;
-        ctx.fillText(`Fee: ${row.fee || '-'}`, canvas.width / 2, yPos); yPos += lineHeight;
-        ctx.fillText(`Status: ${(row.status || 'pending').toUpperCase()}`, canvas.width / 2, yPos);
+        // White background
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Top colored bar
+        const gradient = ctx.createLinearGradient(0, 0, canvas.width, 0);
+        gradient.addColorStop(0, '#0891b2');
+        gradient.addColorStop(1, '#06b6d4');
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, canvas.width, 60);
+
+        // Load and draw logo
+        const img = new Image();
+        img.onload = () => {
+          ctx!.drawImage(img, canvas.width / 2 - 50, 75, 100, 60);
+
+          // Hospital name
+          ctx!.fillStyle = '#0891b2';
+          ctx!.font = 'bold 20px Arial';
+          ctx!.textAlign = 'center';
+          ctx!.fillText('Rufayda Healthcare', canvas.width / 2, 180);
+
+          // Title
+          ctx!.fillStyle = '#1a1a1a';
+          ctx!.font = 'bold 80px Arial';
+          ctx!.textAlign = 'center';
+          ctx!.fillText('Token', canvas.width / 2, 310);
+
+          // Separator line
+          ctx!.strokeStyle = '#e5e7eb';
+          ctx!.lineWidth = 2;
+          ctx!.beginPath();
+          ctx!.moveTo(30, 370);
+          ctx!.lineTo(canvas.width - 30, 370);
+          ctx!.stroke();
+
+          // Info section - clean layout
+          let yPos = 410;
+          const sectionLineHeight = 28;
+
+          ctx!.font = '12px Arial';
+          ctx!.fillStyle = '#6b7280';
+
+          // Hospital
+          ctx!.textAlign = 'left';
+          ctx!.fillText('Hospital:', 40, yPos);
+          ctx!.textAlign = 'right';
+          ctx!.fillText('PulseQ Hospital', canvas.width - 40, yPos);
+          yPos += sectionLineHeight;
+
+          // Department
+          ctx!.textAlign = 'left';
+          ctx!.fillText('Department:', 40, yPos);
+          ctx!.textAlign = 'right';
+          ctx!.fillText(row.department || '-', canvas.width - 40, yPos);
+          yPos += sectionLineHeight;
+
+          // Doctor
+          ctx!.textAlign = 'left';
+          ctx!.fillText('Doctor:', 40, yPos);
+          ctx!.textAlign = 'right';
+          ctx!.fillText((row as any).doctorName || '-', canvas.width - 40, yPos);
+          yPos += 35;
+
+          // Patient Details section header
+          ctx!.fillStyle = '#0891b2';
+          ctx!.font = 'bold 14px Arial';
+          ctx!.textAlign = 'left';
+          ctx!.fillText('Patient Details', 40, yPos);
+          yPos += 28;
+
+          ctx!.font = '12px Arial';
+          ctx!.fillStyle = '#6b7280';
+
+          // Name
+          ctx!.textAlign = 'left';
+          ctx!.fillText('Name:', 40, yPos);
+          ctx!.textAlign = 'right';
+          ctx!.fillText(row.name || '-', canvas.width - 40, yPos);
+          yPos += sectionLineHeight;
+
+          // Phone
+          ctx!.textAlign = 'left';
+          ctx!.fillText('Phone:', 40, yPos);
+          ctx!.textAlign = 'right';
+          ctx!.fillText(row.phone || '-', canvas.width - 40, yPos);
+          yPos += sectionLineHeight;
+
+          // MRN
+          ctx!.textAlign = 'left';
+          ctx!.fillText('MRN:', 40, yPos);
+          ctx!.textAlign = 'right';
+          ctx!.fillText((row as any).mrn || '-', canvas.width - 40, yPos);
+          yPos += sectionLineHeight;
+
+          // Age
+          ctx!.textAlign = 'left';
+          ctx!.fillText('Age:', 40, yPos);
+          ctx!.textAlign = 'right';
+          ctx!.fillText((row.age || '-') + ' years', canvas.width - 40, yPos);
+          yPos += sectionLineHeight;
+
+          // Gender
+          ctx!.textAlign = 'left';
+          ctx!.fillText('Gender:', 40, yPos);
+          ctx!.textAlign = 'right';
+          ctx!.fillText(row.gender || '-', canvas.width - 40, yPos);
+          yPos += 35;
+
+          // Transaction Details section header
+          ctx!.fillStyle = '#0891b2';
+          ctx!.font = 'bold 14px Arial';
+          ctx!.textAlign = 'left';
+          ctx!.fillText('Transaction Details', 40, yPos);
+          yPos += 28;
+
+          ctx!.font = '12px Arial';
+          ctx!.fillStyle = '#6b7280';
+
+          // Payment
+          ctx!.textAlign = 'left';
+          ctx!.fillText('Payment:', 40, yPos);
+          ctx!.textAlign = 'right';
+          ctx!.fillText((row.paymentStatus || 'UNPAID').toUpperCase(), canvas.width - 40, yPos);
+          yPos += sectionLineHeight;
+
+          // Fee
+          ctx!.textAlign = 'left';
+          ctx!.fillText('Fee:', 40, yPos);
+          ctx!.textAlign = 'right';
+          ctx!.fillText(row.fee || '-', canvas.width - 40, yPos);
+          yPos += 35;
+
+          // Status badge - clean design
+          const status = (row.status || 'pending').toUpperCase();
+          const statusColor = this.getStatusColor(row.status || 'pending');
+          ctx!.fillStyle = statusColor;
+          ctx!.fillRect(40, yPos - 18, 160, 40);
+          ctx!.fillStyle = '#ffffff';
+          ctx!.font = 'bold 16px Arial';
+          ctx!.textAlign = 'center';
+          ctx!.fillText(status, 120, yPos + 8);
+
+          // Footer
+          yPos = canvas.height - 50;
+          ctx!.fillStyle = '#9ca3af';
+          ctx!.font = '11px Arial';
+          ctx!.textAlign = 'center';
+          ctx!.fillText('Please keep this slip for your records', canvas.width / 2, yPos);
+          ctx!.fillText('For assistance, contact reception desk', canvas.width / 2, yPos + 22);
+
+          canvas.toBlob((blob) => {
+            if (blob) {
+              const url = URL.createObjectURL(blob);
+              const link = document.createElement('a');
+              link.href = url;
+              link.download = `token-${row.token}.png`;
+              link.click();
+              URL.revokeObjectURL(url);
+              this.messageService.add({ severity: 'success', summary: 'Success', detail: 'Slip downloaded successfully', life: 3000 });
+            }
+          });
+        };
+        img.src = 'assets/rufaydaLogo.jpg';
       }
-      canvas.toBlob((blob) => {
-        if (blob) {
-          const url = URL.createObjectURL(blob);
-          const link = document.createElement('a');
-          link.href = url;
-          link.download = `ticket-${row.token}.png`;
-          link.click();
-          URL.revokeObjectURL(url);
-          this.messageService.add({ severity: 'success', summary: 'Success', detail: 'Slip downloaded successfully', life: 3000 });
-        }
-      });
     }, 1500);
   }
 
-  signOut(): void { this.router.navigate(['../auth'], { relativeTo: this.route }); }
+  private getStatusColor(status: string): string {
+    const statusColors: { [key: string]: string } = {
+      'pending': '#f97316',
+      'waiting': '#3b82f6',
+      'called': '#8b5cf6',
+      'completed': '#22c55e',
+      'cancelled': '#ef4444',
+      'skipped': '#ec4899'
+    };
+    return statusColors[status.toLowerCase()] || '#6b7280';
+  }
+
+  signOut(): void { this.router.navigate(['/']); }
 }

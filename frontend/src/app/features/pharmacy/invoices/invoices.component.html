@@ -143,101 +143,114 @@
 <!-- ── HIDDEN PRINT AREA — off-screen so Angular renders it, visible only on print ── -->
 <div class="print-area-wrapper">
     <div id="print-area" *ngIf="printingInvoice">
-
-        <div class="inv-header">
-            <div class="inv-brand">
-                <div class="inv-brand-icon"><i class="pi pi-building"></i></div>
-                <div>
-                    <div class="inv-brand-name">Rufayda Pharmacy</div>
-                    <div class="inv-brand-sub">123 Main Street, Rawalpindi (DUMMY)</div>
-                    <div class="inv-brand-sub">Tel: +92-51-XXXXXXX</div>
+        <!-- HEADER WITH LOGO AND COMPANY INFO -->
+        <div class="inv-header-section">
+            <div class="inv-logo-section">
+                <img src="assets/rufaydaLogo.jpg" alt="Rufayda Logo" class="inv-logo">
+                <div class="inv-company-info">
+                    <h1 class="inv-company-name">Rufayda Health Complex</h1>
                 </div>
             </div>
-            <div class="inv-meta">
-                <div class="inv-number">{{ printingInvoice.invoice_number }}</div>
-                <div class="inv-meta-row">
-                    <span class="inv-meta-label">Date</span>
-                    <span class="inv-meta-value">{{ printingInvoice.created_at }}</span>
+            <div class="inv-header-right">
+                <div class="inv-invoice-number-box">
+                    <div class="inv-number-label">Invoice #</div>
+                    <div class="inv-number">{{ printingInvoice.invoice_number }}</div>
                 </div>
-                <div class="inv-meta-row">
-                    <span class="inv-meta-label">Status</span>
-                    <span class="inv-status-badge" [ngClass]="'status-' + printingInvoice.status">
-                        {{ printingInvoice.status | titlecase }}
-                    </span>
+                <div class="inv-header-meta">
+                    <div class="inv-meta-item">
+                        <span class="inv-meta-label">DATE</span>
+                        <span class="inv-meta-value">{{ printingInvoice.created_at | date:'dd-MM-yyyy' }}</span>
+                    </div>
+                    <div class="inv-meta-item">
+                        <span class="inv-meta-label">STATUS</span>
+                        <span class="inv-status-badge" [ngClass]="'status-' + printingInvoice.status">
+                            {{ printingInvoice.status | titlecase }}
+                        </span>
+                    </div>
                 </div>
             </div>
         </div>
 
+        <!-- DIVIDER -->
         <div class="inv-divider"></div>
 
-        <div class="inv-info-row">
-            <div class="inv-info-box">
-                <div class="inv-info-label">Bill To</div>
-                <div class="inv-info-value">{{ printingInvoice.customer_name }}</div>
+        <!-- BILL TO AND PAYMENT METHOD -->
+        <div class="inv-bill-section">
+            <div class="inv-bill-column">
+                <div class="inv-bill-label">BILL TO</div>
+                <div class="inv-bill-value">{{ printingInvoice.customer_name }}</div>
             </div>
-            <div class="inv-info-box">
-                <div class="inv-info-label">Payment Method</div>
-                <div class="inv-info-value">{{ printingInvoice.payment_method | titlecase }}</div>
+            <div class="inv-bill-column">
+                <div class="inv-bill-label">PAYMENT METHOD</div>
+                <div class="inv-bill-value">{{ printingInvoice.payment_method | titlecase }}</div>
             </div>
-            <div class="inv-info-box" *ngIf="printingInvoice.notes">
-                <div class="inv-info-label">Notes</div>
-                <div class="inv-info-value">{{ printingInvoice.notes }}</div>
+            <div class="inv-bill-column" *ngIf="printingInvoice.notes">
+                <div class="inv-bill-label">NOTES</div>
+                <div class="inv-bill-value">{{ printingInvoice.notes }}</div>
             </div>
         </div>
 
+        <!-- DIVIDER -->
         <div class="inv-divider"></div>
 
-        <table class="inv-table">
+        <!-- ITEMS TABLE -->
+        <table class="inv-items-table">
             <thead>
                 <tr>
                     <th class="col-num">#</th>
-                    <th>Item Description</th>
-                    <th class="col-right">Qty</th>
-                    <th class="col-right">Unit Price</th>
-                    <th class="col-right">Discount</th>
-                    <th class="col-right">Total</th>
+                    <th class="col-description">ITEM DESCRIPTION</th>
+                    <th class="col-qty">QTY</th>
+                    <th class="col-price">UNIT PRICE</th>
+                    <th class="col-discount">DISCOUNT</th>
+                    <th class="col-total">TOTAL</th>
                 </tr>
             </thead>
             <tbody>
                 <tr *ngFor="let item of printingInvoice.items; let i = index">
                     <td class="col-num">{{ i + 1 }}</td>
-                    <td>
+                    <td class="col-description">
                         <div class="item-name">{{ item.product_name }}</div>
                         <div class="item-code" *ngIf="item.product_code">{{ item.product_code }}</div>
                     </td>
-                    <td class="col-right">{{ item.quantity }}</td>
-                    <td class="col-right">PKR {{ item.unit_price | number:'1.2-2' }}</td>
-                    <td class="col-right">PKR {{ item.discount | number:'1.2-2' }}</td>
-                    <td class="col-right col-total">PKR {{ item.total | number:'1.2-2' }}</td>
+                    <td class="col-qty">{{ item.quantity }}</td>
+                    <td class="col-price">Rs. {{ item.unit_price | number:'1.2-2' }}</td>
+                    <td class="col-discount">Rs. {{ item.discount | number:'1.2-2' }}</td>
+                    <td class="col-total">Rs. {{ item.total | number:'1.2-2' }}</td>
                 </tr>
             </tbody>
         </table>
 
+        <!-- DIVIDER -->
         <div class="inv-divider"></div>
 
-        <div class="inv-totals">
-            <div class="inv-total-row">
-                <span>Subtotal</span>
-                <span>PKR {{ getItemsTotal() | number:'1.2-2' }}</span>
-            </div>
-            <div class="inv-total-row" *ngIf="printingInvoice.tax && printingInvoice.tax > 0">
-                <span>Tax ({{ printingInvoice.tax }}%)</span>
-                <span>PKR {{ getItemsTotal() * (printingInvoice.tax / 100) | number:'1.2-2' }}</span>
-            </div>
-            <div class="inv-total-row" *ngIf="printingInvoice.discount && printingInvoice.discount > 0">
-                <span>Discount</span>
-                <span>- PKR {{ printingInvoice.discount | number:'1.2-2' }}</span>
-            </div>
-            <div class="inv-total-row inv-grand-total">
-                <span>Grand Total</span>
-                <span>PKR {{ getGrandTotal() | number:'1.2-2' }}</span>
+        <!-- PAYMENT SUMMARY -->
+        <div class="inv-summary-section">
+            <div class="inv-summary-box">
+                <div class="inv-summary-row">
+                    <span class="inv-summary-label">Subtotal</span>
+                    <span class="inv-summary-value">Rs. {{ getItemsTotal() | number:'1.2-2' }}</span>
+                </div>
+                <div class="inv-summary-row" *ngIf="printingInvoice.tax && printingInvoice.tax > 0">
+                    <span class="inv-summary-label">Tax ({{ printingInvoice.tax }}%)</span>
+                    <span class="inv-summary-value">Rs. {{ getItemsTotal() * (printingInvoice.tax / 100) |
+                        number:'1.2-2' }}</span>
+                </div>
+                <div class="inv-summary-row" *ngIf="printingInvoice.discount && printingInvoice.discount > 0">
+                    <span class="inv-summary-label">Discount</span>
+                    <span class="inv-summary-value">- Rs. {{ printingInvoice.discount | number:'1.2-2' }}</span>
+                </div>
+                <div class="inv-summary-divider"></div>
+                <div class="inv-summary-row inv-summary-total">
+                    <span class="inv-summary-label">Total</span>
+                    <span class="inv-summary-value">Rs. {{ getGrandTotal() | number:'1.2-2' }}</span>
+                </div>
             </div>
         </div>
 
-        <div class="inv-footer">
-            <div class="inv-footer-line"></div>
-            <p>Thank you for choosing Rufayda Pharmacy. Get well soon!</p>
-            <p class="inv-footer-small">This is a computer-generated invoice and does not require a signature.</p>
+        <!-- FOOTER -->
+        <div class="inv-footer-section">
+            <p class="inv-footer-text">Thank you for choosing Rufayda Health Complex. Get well soon!</p>
+            <p class="inv-footer-disclaimer">This is a computer-generated invoice and does not require a signature.</p>
         </div>
 
     </div>

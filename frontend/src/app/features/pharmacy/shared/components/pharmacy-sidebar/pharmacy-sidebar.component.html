@@ -32,6 +32,11 @@
             <i class="pi pi-chart-line"></i>
             <span>Sales & Revenue</span>
         </a>
+        <a [routerLink]="invoicesPath" routerLinkActive="active" class="menu-item"
+            [routerLinkActiveOptions]="{ exact: false }" (click)="sidebarOpen = false">
+            <i class="pi pi-file-pdf"></i>
+            <span>Invoices</span>
+        </a>
         <a [routerLink]="addPath" routerLinkActive="active" class="menu-item"
             [routerLinkActiveOptions]="{ exact: false }" (click)="sidebarOpen = false">
             <i class="pi pi-plus-circle"></i>

@@ -18,14 +18,13 @@ export class PharmacySidebarComponent {
     salesPath = pharmacyPath('sales');
     addPath = pharmacyPath('add');
     trashPath = pharmacyPath('trash');
+    invoicesPath = pharmacyPath('invoices');
 
     constructor(private router: Router, private authService: AuthService) { }
 
     signOut(): void {
         this.authService.logout();
-        const isLocalhost = window.location.hostname === 'localhost' ||
-                            window.location.hostname === '127.0.0.1';
-        this.router.navigate([isLocalhost ? '/staff/pharmacy/auth' : '/auth']);
+        this.router.navigate(['/staff/pharmacy/auth']);
     }
 
     toggleSidebar(): void {
