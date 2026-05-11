@@ -2,6 +2,7 @@ import { Routes } from '@angular/router';
 import { authGuard } from '../core/guards/auth.guard';
 
 export const adminRoutes: Routes = [
+    { path: '', redirectTo: 'auth', pathMatch: 'full' },
     {
         path: 'auth',
         loadComponent: () =>
@@ -46,7 +47,5 @@ export const adminRoutes: Routes = [
     // Legacy route redirects for backward compatibility
     { path: 'overview', redirectTo: 'dashboard' },
     { path: 'doctors', redirectTo: 'manage-doctors' },
-    { path: 'departments', redirectTo: 'manage-departments' },
-    // Default redirect: matches only when no other route matches
-    { path: '', redirectTo: 'auth', pathMatch: 'full' }
+    { path: 'departments', redirectTo: 'manage-departments' }
 ];

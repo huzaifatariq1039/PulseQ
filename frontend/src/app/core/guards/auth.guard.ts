@@ -59,8 +59,6 @@ export const authGuard: CanActivateFn = (route, state) => {
         }
     }
 
-    // On server (!isBrowser): determine the correct auth page based on the requested URL
-    // This ensures the server renders the correct auth page without hardcoding /patient/auth
-    const authPage = getAuthPageForUrl(state.url);
-    return router.parseUrl(authPage);
+    // On server, redirect to patient auth to prevent prerendering protected content
+    return router.parseUrl('/patient/auth');
 };
