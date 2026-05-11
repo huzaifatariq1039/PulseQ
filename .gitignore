@@ -7,6 +7,7 @@ serviceAccountKey.json
 *.firebase-adminsdk*.json
 smart-token-*.json
 
+
 # --- Backend (Python/FastAPI) ---
 __pycache__/
 *.py[cod]
