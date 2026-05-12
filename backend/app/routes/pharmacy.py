@@ -605,6 +605,7 @@ async def dispense_medicine(
         if isinstance(e, HTTPException): raise e
         logger.exception("Dispense failed")
         raise HTTPException(status_code=500, detail="Dispense failed")
+    
 
 @router.post("/add-medicine", dependencies=[Depends(require_roles("pharmacy", "admin"))])
 async def add_medicine(
@@ -1320,3 +1321,42 @@ async def export_sales_excel(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
+
+class UpdateMedicineRequest(BaseModel):
+    name: Optional[str] = None
+    generic_name: Optional[str] = None
+    batch_no: Optional[str] = None
+    quantity: Optional[int] = None
+    selling_price: Optional[float] = None
+    purchase_price: Optional[float] = None
+    expiration_date: Optional[str] = None
+    category: Optional[str] = None
+    sub_category: Optional[str] = None
+    type: Optional[str] = None
+    distributor: Optional[str] = None
+    stock_unit: Optional[str] = None
+
+@public_router.put("/medicines/{medicine_id}")
+async def update_medicine_public(
+    medicine_id: str,
+    payload: UpdateMedicineRequest,
+    db: Session = Depends(get_db),
+    current: TokenData = Depends(get_current_active_user),
+) -> Dict[str, Any]:
+    med = db.query(PharmacyMedicine).filter(
+        PharmacyMedicine.id == medicine_id,
+        PharmacyMedicine.hospital_id == getattr(current, "hospital_id", None)
+    ).first()
+
+    if not med:
+        raise HTTPException(status_code=404, detail="Medicine not found")
+
+    update_data = payload.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(med, field, value)
+
+    med.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(med)
+    await _broadcast_inventory_update(getattr(current, "hospital_id", None))
+    return ok(message="Medicine updated successfully", data={"id": med.id})

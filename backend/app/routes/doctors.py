@@ -521,6 +521,7 @@ async def create_doctor(
             email=doctor.email,
             password_hash=get_password_hash(doctor_password),
             role="doctor",
+            phone=doctor.phone,
             hospital_id=doctor.hospital_id,
             created_at=datetime.utcnow(),
             updated_at=datetime.utcnow(),
