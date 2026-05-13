@@ -116,6 +116,7 @@ class Doctor(Base):
     subcategory = Column(String(100), nullable=True, index=True) # Added index for detailed filtering
     hospital_id = Column(String, ForeignKey("hospitals.id"), nullable=False, index=True)
     email = Column(String(255), nullable=True)
+    phone = Column(String(20), nullable=True)
     rating = Column(Float, nullable=True)
     review_count = Column(Integer, default=0)
     consultation_fee = Column(Float, nullable=False)
