@@ -358,6 +358,7 @@ class DoctorCreate(DoctorBase):
 class DoctorResponse(DoctorBase):
     id: str
     user_id: Optional[str] = None
+    specialization: str
     department: Optional[str] = None
     created_at: datetime
     updated_at: datetime
