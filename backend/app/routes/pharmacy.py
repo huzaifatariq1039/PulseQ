@@ -931,6 +931,13 @@ async def list_invoice_trash(
 ):
     h_id = hospital_id or getattr(current, "hospital_id", None)
     invoices = PharmacyInvoiceService.get_trash(db=db, hospital_id=h_id)
+
+    if isinstance(invoices, dict) and "invoices" in invoices:
+        for invoice in invoices["invoices"]:
+            invoice["date"] = invoice.get("created_at")         # alias for frontend
+            if not invoice.get("updated_at"):
+                invoice["updated_at"] = invoice.get("created_at") # fix null updated_at
+    
     return ok(data=invoices)
 
 

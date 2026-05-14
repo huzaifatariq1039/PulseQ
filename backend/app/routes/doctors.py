@@ -544,7 +544,24 @@ async def create_doctor(
     db.refresh(new_doctor)
         
     logger.info(f"Admin {current_user.user_id} created doctor: {doctor.name} (user_id={user_id})")
-    return DoctorResponse(**doctor_data)
+    return DoctorResponse(
+    id=new_doctor.id,
+    name=new_doctor.name,
+    specialization=new_doctor.specialization,
+    subcategory=new_doctor.subcategory,
+    hospital_id=new_doctor.hospital_id,
+    consultation_fee=new_doctor.consultation_fee,
+    session_fee=new_doctor.session_fee,
+    status=new_doctor.status,
+    available_days=new_doctor.available_days or [],
+    start_time=new_doctor.start_time,
+    end_time=new_doctor.end_time,
+    avatar_initials=new_doctor.avatar_initials,
+    rating=new_doctor.rating,
+    review_count=new_doctor.review_count,
+    created_at=new_doctor.created_at,
+    updated_at=new_doctor.updated_at,
+)
 
 
 # ==================== PUBLIC ENDPOINTS (public_router) ====================
