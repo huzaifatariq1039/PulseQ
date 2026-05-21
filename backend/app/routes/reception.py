@@ -174,7 +174,7 @@ async def reception_queue(
         query = query.filter(Token.doctor_id == doctor_id)
 
     total = query.count()
-    tokens = query.order_by(Token.token_number.asc()).offset((page-1)*page_size).limit(page_size).all()
+    tokens = query.order_by(Token.token_number.desc()).offset((page-1)*page_size).limit(page_size).all()
 
     items: List[Dict[str, Any]] = []
     for t in tokens:

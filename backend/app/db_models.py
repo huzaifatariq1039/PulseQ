@@ -296,6 +296,7 @@ class PharmacyMedicine(Base):
     stock_unit = Column(String(50), nullable=True)
     quantity = Column(Integer, default=0, index=True)
     expiration_date = Column(DateTime(timezone=True), nullable=True, index=True)
+    manufacture_date = Column(DateTime(timezone=True), nullable=True)
     category = Column(String(100), nullable=True, index=True)
     sub_category = Column(String(100), nullable=True, index=True)
     hospital_id = Column(String, ForeignKey("hospitals.id"), nullable=True, index=True)

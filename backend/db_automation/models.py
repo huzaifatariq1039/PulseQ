@@ -612,6 +612,7 @@ class PharmacyMedicine(Base):
     stock_unit = Column(String, nullable=True)
     quantity = Column(Integer, nullable=True, default=0)
     expiration_date = Column(DateTime(timezone=True), nullable=True)
+    manufacture_date = Column(DateTime(timezone=True), nullable=True)
     category = Column(String, nullable=True)
     sub_category = Column(String, nullable=True)
     hospital_id = Column(String, nullable=True, index=True)
@@ -639,6 +640,7 @@ class PharmacyMedicine(Base):
             "selling_price": self.selling_price,
             "stock_unit": self.stock_unit,
             "quantity": self.quantity,
+            "manufacture_date": self.manufacture_date.strftime("%d-%m-%Y") if self.manufacture_date else None,
             "expiration_date": self.expiration_date.isoformat() if self.expiration_date else None,
             "category": self.category,
             "sub_category": self.sub_category,

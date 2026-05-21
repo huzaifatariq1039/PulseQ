@@ -636,6 +636,7 @@ class PharmacyMedicine(Base):
             "selling_price": self.selling_price,
             "stock_unit": self.stock_unit,
             "quantity": self.quantity,
+            "manufacture_date": self.manufacture_date.strftime("%d-%m-%Y") if self.manufacture_date else None,
             "expiration_date": self.expiration_date.isoformat() if self.expiration_date else None,
             "category": self.category,
             "sub_category": self.sub_category,
