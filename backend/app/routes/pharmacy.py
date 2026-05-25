@@ -314,10 +314,9 @@ async def search_medicine(
 async def public_add_medicine(
     payload: AddMedicineRequest,
     db: Session = Depends(get_db),
-    current: TokenData = Depends(get_current_active_user),
+    #current: TokenData = Depends(get_current_active_user),
 ) -> Dict[str, Any]:
-    
-    user_hospital = getattr(current, 'hospital_id', None)
+    user_hospital = payload.hospital_id
     
     # [FIX] Multi-tenant scoping and Native Upsert (ignores is_deleted to find ghosts)
     existing = db.query(PharmacyMedicine).filter(
