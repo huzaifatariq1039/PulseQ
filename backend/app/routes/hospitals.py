@@ -29,6 +29,24 @@ from app.services.cache_service import CacheService, cached
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+_cache: dict = {}
+
+def _cache_get(key: str):
+    entry = _cache.get(key)
+    if entry is None:
+        return None
+    value, expires_at = entry
+    if expires_at and datetime.utcnow().timestamp() > expires_at:
+        del _cache[key]
+        return None
+    return value
+
+def _cache_set(key: str, value, ttl_seconds: int = 300):
+    expires_at = datetime.utcnow().timestamp() + ttl_seconds
+    _cache[key] = (value, expires_at)
+
+TOKEN_FEE = 50 
+
 # Lightweight text normalizer for robust matching across app/backend
 def _norm(text: Optional[str]) -> str:
     """Normalize text for comparison: collapse whitespace, trim, lowercase."""
@@ -495,6 +513,8 @@ async def get_nearby_hospitals_with_doctors(
         for d in dref:
             item = {k: v for k, v in d.__dict__.items() if not k.startswith('_')}
             if _matches_category(item):
+                item["total_fee"] = round(float(item.get("consultation_fee") or 0) + TOKEN_FEE, 2)
+                item["token_fee"] = TOKEN_FEE
                 doctors.append(item)
                 if len(doctors) >= per_hospital_limit:
                     break
@@ -844,6 +864,8 @@ async def get_hospital_doctors(
                 "subcategory": d.subcategory,
                 "hospital_id": d.hospital_id,
                 "consultation_fee": d.consultation_fee,
+                "total_fee": round(float(d.consultation_fee or 0) + TOKEN_FEE, 2),
+                "token_fee": TOKEN_FEE,
                 "session_fee": d.session_fee,
                 "status": d.status,
                 "available_days": d.available_days or [],
@@ -1050,6 +1072,8 @@ async def get_hospital_doctors_by_main_category(
         item = {k: v for k, v in d.__dict__.items() if not k.startswith('_')}
         spec = _norm(item.get("specialization") or "")
         if any(spec == sc or spec in sc or sc in spec for sc in subcats_lower):
+            item["total_fee"] = round(float(item.get("consultation_fee") or 0) + TOKEN_FEE, 2)
+            item["token_fee"] = TOKEN_FEE          
             results.append(item)
             if len(results) >= limit:
                 break
@@ -1135,12 +1159,17 @@ async def get_hospital_doctors_by_subcategory(
             break
 
     docs = db.query(Doctor).filter(Doctor.hospital_id == hospital_id).limit(500).all()
+    TOKEN_FEE = 50
+
     results: list[dict] = []
     for d in docs:
         item = {k: v for k, v in d.__dict__.items() if not k.startswith('_')}
         spec = _norm(item.get("specialization") or "")
         # Match direct subcategory OR the resolved main category (doctor saved as main only)
         if target and (target == spec or target in spec or spec in target or (target_main_norm and spec == target_main_norm)):
+            consultation_fee = float(item.get("consultation_fee") or 0)
+            item["total_fee"] = round(consultation_fee + TOKEN_FEE, 2)
+            item["token_fee"] = TOKEN_FEE
             results.append(item)
             if len(results) >= limit:
                 break

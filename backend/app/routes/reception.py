@@ -374,9 +374,9 @@ async def receptionist_create_walkin_token(
     hospital_name_str = hospital.name if hospital else "Unknown Hospital"
     mrn = get_or_create_patient_mrn(db, user.id, hospital_id)
 
-    doc_fee = float(doctor.consultation_fee or 0)
     token_fee = 50.0
-    total_fee = doc_fee + token_fee
+    doc_fee = float(doctor.consultation_fee or 0) + token_fee  # includes token fee
+    total_fee = doc_fee
 
     last_token = db.query(Token).filter(
         Token.hospital_id == hospital_id,
@@ -499,8 +499,8 @@ async def receptionist_create_walkin_token(
         department=doctor.specialization,
         reason_for_visit=reason,
         hospital_name=hospital_name_str,
-        consultation_fee=doc_fee,
-        total_fee=total_fee,
+        consultation_fee=doc_fee,   # stored as 550
+        total_fee=doc_fee,
         estimated_wait_time=estimated_wait_time
     )
     
@@ -552,9 +552,9 @@ async def receptionist_create_walkin_token(
             "gender": gender,
             "payment": "UNPAID",
             "status": "PENDING",
-            "consultation_fee": doc_fee,
-            "token_fee": token_fee,
-            "total_fee": total_fee,
+            "consultation_fee": doc_fee,   # (e.g. 550)
+            "token_fee": token_fee,        # 50 
+            "total_fee": doc_fee,
             "estimated_wait_time": estimated_wait_time
         }, 
         message="Walk-in token created via AI Engine"

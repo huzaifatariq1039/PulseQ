@@ -988,6 +988,29 @@ async def create_invoice(
     data = invoice.to_dict()
     data["items"] = PharmacyInvoiceService.get_invoice_items(db=db, invoice_id=invoice.id)
     data["item_count"] = len(data["items"])
+
+    # Record each invoice item as a pharmacy sale for analytics
+    try:
+        for item in payload.items:
+            sale = PharmacySale(
+                id=str(uuid.uuid4()),
+                hospital_id=getattr(current, "hospital_id", None),
+                medicine_id=item.product_id,
+                medicine_name=item.product_name,
+                quantity=int(item.quantity or 1),
+                unit_price=float(item.unit_price or 0),
+                total_price=float(item.total or 0),
+                total_amount=float(item.total or 0),
+                payment_status=payload.status or "paid",
+                sold_at=datetime.utcnow(),
+                performed_by=getattr(current, "user_id", None),
+            )
+            db.add(sale)
+        db.commit()
+    except Exception as e:
+        logger.warning(f"Failed to record pharmacy sales for invoice {invoice.id}: {e}")
+        db.rollback()
+
     return ok(data=data, message="Invoice created successfully")
 
 

@@ -762,7 +762,8 @@ async def generate_smart_token(
         "reason_for_visit": payload.reason_for_visit or None,
         "consultation_fee": pricing.get("consultation_fee"),
         "session_fee": pricing.get("session_fee"),
-        "total_fee": pricing.get("total_amount"),
+        "token_fee": TOKEN_FEE,
+        "total_fee": float(pricing.get("consultation_fee") or 0) + TOKEN_FEE,
         "estimated_wait_time": estimated_wait_time,
         "created_at": datetime.utcnow(),
         "updated_at": datetime.utcnow(),
@@ -986,6 +987,9 @@ async def create_token(
         "patient_age": spec.patient_age,
         "patient_gender": spec.patient_gender,
         "reason_for_visit": spec.reason_for_visit or None,
+        "consultation_fee": float(doctor_data.get("consultation_fee") or 0),
+        "token_fee": TOKEN_FEE,
+        "total_fee": float(doctor_data.get("consultation_fee") or 0) + TOKEN_FEE,
         "created_at": datetime.utcnow(),
         "updated_at": datetime.utcnow(),
     }
@@ -1078,11 +1082,30 @@ async def get_appointment_details(
         db=db 
     )
 
+    token_resp = _to_smart_token_response(token)
+    consultation_fee = float(token.consultation_fee or 0)
+    token_fee = float(getattr(token, "token_fee", None) or TOKEN_FEE)
+    total_fee = float(token.total_fee or (consultation_fee + token_fee))
+
     return {
-        "token": _to_smart_token_response(token),
+        "token": token_resp,
         "doctor": {k: v for k, v in doctor.__dict__.items() if not k.startswith('_')} if doctor else {},
         "hospital": {k: v for k, v in hospital.__dict__.items() if not k.startswith('_')} if hospital else {},
-        "queue": queue
+        "queue": queue,
+        "slip": {
+            "token_number": token.display_code or f"A-{token.token_number:03d}",
+            "patient_name": token.patient_name or "N/A",
+            "patient_mrn": token.mrn or "N/A",
+            "doctor_name": token.doctor_name or "N/A",
+            "specialization": token.doctor_specialization or "N/A",
+            "hospital_name": token.hospital_name or "N/A",
+            "appointment_date": token.appointment_date.strftime("%d %b %Y") if token.appointment_date else "N/A",
+            "appointment_time": token.appointment_date.strftime("%I:%M %p") if token.appointment_date else "N/A",
+            "consultation_fee": consultation_fee,
+            "token_fee": token_fee,
+            "total_amount": total_fee,
+            "status": str(token.status).replace("TokenStatus.", "").capitalize(),
+        }
     }
 
 @router.get("/{token_id}/queue-status")

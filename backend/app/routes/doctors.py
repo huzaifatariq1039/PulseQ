@@ -426,7 +426,7 @@ async def create_doctor(
         )
 
     import uuid
-    doctor_data = doctor.dict()
+    doctor_data = doctor.dict(exclude_none=True)
         
     # Extract password before processing (it's for User account, not Doctor model)
     doctor_password = doctor_data.pop("password", None)
@@ -454,7 +454,14 @@ async def create_doctor(
         doctor_data.pop("fee", None)
     
     # Remove frontend-only fields that don't exist in DB model
-    doctor_data.pop("per_session_fee", None)  # 'per_session_fee' is alias for 'session_fee'
+    doctor_data.pop("per_session_fee", None)
+    doctor_data.pop("phone", None)      # remove if not in DB
+    doctor_data.pop("email", None)      # remove if not in DB
+    doctor_data.pop("qualifications", None)
+    doctor_data.pop("experience_years", None)
+    doctor_data.pop("languages", None)
+    doctor_data.pop("about", None)
+    doctor_data.pop("room_number", None)  
     
     dept_text = (
         f"{doctor_data.get('specialization') or ''} "
@@ -513,6 +520,15 @@ async def create_doctor(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"User with email {doctor.email} already exists",
             )
+
+        # Also check phone uniqueness before insert
+        if doctor.phone:
+            existing_phone = db.query(User).filter(User.phone == doctor.phone).first()
+            if existing_phone:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"A user with phone {doctor.phone} already exists. Use a different phone number.",
+                )
             
         user_id = str(uuid.uuid4())
         new_user = User(

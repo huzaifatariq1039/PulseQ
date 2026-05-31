@@ -487,6 +487,24 @@ async def admin_dashboard(
             "created_at": t.created_at.isoformat()
         })
 
+    # Sales summary
+    from app.db_models import PharmacySale
+    from sqlalchemy import func as sqlfunc
+
+    def _sum_sales(start, end):
+        q = db.query(sqlfunc.coalesce(sqlfunc.sum(PharmacySale.total_price), 0))
+        if hospital_id:
+            q = q.filter(PharmacySale.hospital_id == hospital_id)
+        return float(q.filter(PharmacySale.sold_at >= start, PharmacySale.sold_at < end).scalar() or 0)
+
+    today_start = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+    week_start = today_start - timedelta(days=today_start.weekday())
+    month_start = today_start.replace(day=1)
+
+    today_sales = _sum_sales(today_start, now_utc)
+    weekly_sales = _sum_sales(week_start, now_utc)
+    monthly_sales = _sum_sales(month_start, now_utc)
+
     return ok(
         data={
             "cards": {
@@ -494,6 +512,11 @@ async def admin_dashboard(
                 "active_doctors": active_doctors,
                 "avg_wait_time_minutes": avg_wait_minutes,
                 "departments": departments_count,
+            },
+            "sales": {
+                "today": round(today_sales, 2),
+                "weekly": round(weekly_sales, 2),
+                "monthly": round(monthly_sales, 2),
             },
             "patient_flow_today": flow_today,
             "patient_flow_monthly": flow_monthly,
@@ -734,9 +757,9 @@ async def receptionist_create_walkin_token(
     hospital_name_str = hospital.name if hospital else "Unknown Hospital"
     mrn = get_or_create_patient_mrn(db, user.id, hospital_id)
 
-    doc_fee = float(doctor.consultation_fee or 0)
     token_fee = 50.0
-    total_fee = doc_fee + token_fee
+    doc_fee = float(doctor.consultation_fee or 0) + token_fee  # includes token fee (e.g. 550)
+    total_fee = doc_fee  # same as consultation_fee shown on slip
 
     last_token = db.query(Token).filter(
         Token.hospital_id == hospital_id,
@@ -859,8 +882,8 @@ async def receptionist_create_walkin_token(
         department=doctor.specialization,
         reason_for_visit=reason,
         hospital_name=hospital_name_str,
-        consultation_fee=doc_fee,
-        total_fee=total_fee,
+        consultation_fee=doc_fee,   
+        total_fee=doc_fee,         
         estimated_wait_time=estimated_wait_time
     )
     
@@ -910,9 +933,9 @@ async def receptionist_create_walkin_token(
             "gender": gender,
             "payment": "UNPAID",
             "status": "PENDING",
-            "consultation_fee": doc_fee,
-            "token_fee": token_fee,
-            "total_fee": total_fee,
+            "consultation_fee": doc_fee,   # 550 
+            "token_fee": token_fee,        # 50 for reference
+            "total_fee": doc_fee,          # 550
             "estimated_wait_time": estimated_wait_time
         }, 
         message="Walk-in token created via AI Engine")
