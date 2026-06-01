@@ -150,7 +150,13 @@ def _to_smart_token_response(t: Token) -> SmartTokenResponse:
 
     valid_keys = set(SmartTokenResponse.model_fields.keys())
     filtered_data = {k: v for k, v in data.items() if k in valid_keys}
-    
+
+    # Fix null datetime fields
+    if not filtered_data.get("updated_at"):
+        filtered_data["updated_at"] = filtered_data.get("created_at") or datetime.utcnow()
+    if not filtered_data.get("created_at"):
+        filtered_data["created_at"] = datetime.utcnow()
+
     return SmartTokenResponse(**filtered_data)
 
 
@@ -760,7 +766,7 @@ async def generate_smart_token(
         "patient_age": payload.patient_age,
         "patient_gender": payload.patient_gender,
         "reason_for_visit": payload.reason_for_visit or None,
-        "consultation_fee": pricing.get("consultation_fee"),
+        "consultation_fee": float(pricing.get("consultation_fee") or 0) + TOKEN_FEE,
         "session_fee": pricing.get("session_fee"),
         "token_fee": TOKEN_FEE,
         "total_fee": float(pricing.get("consultation_fee") or 0) + TOKEN_FEE,
