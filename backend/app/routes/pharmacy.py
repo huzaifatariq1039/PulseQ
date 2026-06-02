@@ -446,7 +446,7 @@ async def get_all_medicines_staff(
     hospital_id: Optional[str] = Query(None, description="Filter by hospital ID"),
     product_id: Optional[int] = Query(None),
     page: int = Query(1, ge=1),
-    page_size: int = Query(500, ge=1, le=1000),  
+    page_size: int = Query(500, ge=1, le=5000),  
 ) -> Dict[str, Any]:
     """Staff endpoint to get medicines for their hospital"""
     # Use current user's hospital_id if not provided
@@ -509,7 +509,7 @@ async def get_all_medicines(
     hospital_id: Optional[str] = Query(None, description="Filter by hospital ID"),
     product_id: Optional[int] = Query(None),
     page: int = Query(1, ge=1),
-    page_size: int = Query(500, ge=1, le=1000),  
+    page_size: int = Query(500, ge=1, le=5000),  
 ) -> Dict[str, Any]:
     cols = (
         PharmacyMedicine.id, PharmacyMedicine.product_id, PharmacyMedicine.batch_no,
