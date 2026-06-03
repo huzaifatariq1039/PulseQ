@@ -769,9 +769,12 @@ async def delete_item(
     from app.db_models import PharmacyMedicine
     
     med = db.query(PharmacyMedicine).filter(
-        PharmacyMedicine.id == item_id,
-        PharmacyMedicine.hospital_id == current.hospital_id
+        PharmacyMedicine.id == item_id
     ).first()
+
+    # If hospital_id exists on token, verify ownership
+    if med and current.hospital_id and med.hospital_id and med.hospital_id != current.hospital_id:
+        raise HTTPException(status_code=403, detail="Access denied")
     
     if not med:
         try:
@@ -1369,6 +1372,51 @@ class UpdateMedicineRequest(BaseModel):
     type: Optional[str] = None
     distributor: Optional[str] = None
     stock_unit: Optional[str] = None
+
+@public_router.delete("/medicines/{medicine_id}")
+async def delete_medicine_public(
+    medicine_id: str,
+    hospital_id: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    # Try by UUID first
+    med = db.query(PharmacyMedicine).filter(
+        PharmacyMedicine.id == medicine_id,
+        PharmacyMedicine.is_deleted.isnot(True)
+    ).first()
+
+    # Try by product_id if UUID not found
+    if not med:
+        try:
+            med = db.query(PharmacyMedicine).filter(
+                PharmacyMedicine.product_id == int(medicine_id),
+                PharmacyMedicine.is_deleted.isnot(True)
+            ).first()
+        except (ValueError, TypeError):
+            pass
+
+    # Try with hospital_id filter
+    if not med and hospital_id:
+        med = db.query(PharmacyMedicine).filter(
+            PharmacyMedicine.hospital_id == hospital_id,
+            PharmacyMedicine.is_deleted.isnot(True)
+        ).filter(
+            (PharmacyMedicine.id == medicine_id) |
+            (PharmacyMedicine.product_id == int(medicine_id) if medicine_id.isdigit() else False)
+        ).first()
+
+    if not med:
+        raise HTTPException(status_code=404, detail="Medicine not found")
+
+    med.is_deleted = True
+    med.deleted_at = datetime.utcnow()
+    db.commit()
+    await _broadcast_inventory_update(med.hospital_id)
+
+    return ok(
+        message=f"Medicine '{med.name}' deleted successfully",
+        data={"deleted_id": med.id, "product_id": med.product_id}
+    )
 
 @public_router.put("/medicines/{medicine_id}")
 async def update_medicine_public(
