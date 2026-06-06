@@ -234,7 +234,7 @@ async def twilio_whatsapp_webhook(
                     ],
                 )
                 logger.info(f"[YES] queue_update_alert sent: sid={result}")
-                await _mark_message_sent(normalized_incoming, "queue_update_alert")
+                await _mark_message_sent(normalized_incoming, "queue_update_alert", ttl_seconds=7200)
 
         except Exception as e:
             logger.error(f"[YES] Failed to send queue_update_alert: {e}", exc_info=True)

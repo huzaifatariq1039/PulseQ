@@ -60,6 +60,11 @@ async def _send_walkin_token_notification(
         formatted_phone = format_whatsapp_number(phone)
         logger.info(f"[Walk-in WhatsApp] Raw phone={phone}, Formatted={formatted_phone}")
         
+        logger.info(
+            f"[Walk-in WhatsApp] Params → doctor={doctor_name}, "
+            f"patient={patient_name}, hospital={hospital_name}, department={department}"
+        )
+        
         # Send template message with exactly 4 parameters
         await send_template_message(
             phone=formatted_phone,
@@ -543,7 +548,7 @@ async def receptionist_create_walkin_token(
             "token_id": token_id,
             "token_number": display_code,
             "hospital_name": hospital_name_str,
-            "department": reason,
+            "department": doctor.specialization or "Department",
             "doctor_name": doctor.name,
             "patient_name": patient_name,
             "phone": phone,

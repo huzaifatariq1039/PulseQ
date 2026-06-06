@@ -119,29 +119,32 @@ async def schedule_at(
 
 
 async def schedule_messages(token: Dict[str, Any], is_webhook_trigger: bool = False) -> None:
-    """Schedule reminder messages for a token.
-    
-    ✅ NO ARQ - uses asyncio tasks directly
-    
-    Args:
-        token: Token dictionary with patient info
-        is_webhook_trigger: True if called from webhook (patient replied YES)
-    """
     try:
         patient_phone = token.get("patient_phone", "")
         token_id = token.get("id", "")
         estimated_wait_time = token.get("estimated_wait_time", 0)
         
-        # ✅ CHECK IF MESSAGES ALREADY SCHEDULED
-        key_message = "queue_update_alert"
-        if await _is_message_already_sent(patient_phone, key_message):
-            logger.info(f"Messages already scheduled for token {token_id}, skipping")
-            return
-        
         logger.info(f"Scheduling messages for token {token_id}, phone: {patient_phone}")
         
-        # Mark key message as sent to prevent duplicates
-        await _mark_message_sent(patient_phone, key_message)
+        # Schedule follow-up messages based on estimated wait time
+        if estimated_wait_time > 0:
+            final_alert_delay = int(estimated_wait_time * 0.8)
+            if final_alert_delay > 0:
+                run_at = datetime.now(timezone.utc) + timedelta(minutes=final_alert_delay)
+                await schedule_at(
+                    run_at,
+                    "final_alert",
+                    token,
+                    [
+                        token.get("patient_name", "Patient"),
+                        token.get("token_number", "0")
+                    ]
+                )
+
+        logger.info(f"Message scheduling completed for token {token_id}")
+
+    except Exception as e:
+        logger.error(f"Failed to schedule messages: {e}")
         
         # Schedule follow-up messages based on estimated wait time
         if estimated_wait_time > 0:
