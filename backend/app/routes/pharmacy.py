@@ -47,11 +47,15 @@ class AddMedicineRequest(BaseModel):
     generic_name: Optional[str] = None
     type: Optional[str] = None
     distributor: Optional[str] = None
+    supplier_name: Optional[str] = None
+    distributor_company: Optional[str] = None
+    distributor_mobile: Optional[str] = None
     purchase_price: float = Field(..., gt=0)
     selling_price: float = Field(..., gt=0)
     stock_unit: Optional[str] = None
     quantity: int = Field(..., ge=0)
     expiration_date: Optional[str] = None
+    manufacture_date: Optional[str] = None
     category: Optional[str] = None
     sub_category: Optional[str] = None
     hospital_id: Optional[str] = None
@@ -337,7 +341,7 @@ async def public_add_medicine(
         existing.name = payload.name
         existing.generic_name = payload.generic_name
         existing.type = payload.type
-        existing.distributor = payload.distributor
+        existing.distributor = payload.distributor or payload.supplier_name
         existing.purchase_price = payload.purchase_price
         existing.selling_price = payload.selling_price
         existing.stock_unit = payload.stock_unit
@@ -345,15 +349,34 @@ async def public_add_medicine(
         existing.expiration_date = exp_dt
         existing.category = payload.category
         existing.sub_category = payload.sub_category
-        
+        existing.manufacture_date = payload.manufacture_date
         existing.is_deleted = False # Instantly revive it from the trash
         existing.updated_at = datetime.utcnow()
         
         db.commit()
         db.refresh(existing)
         await _broadcast_inventory_update(user_hospital)
-        return ok(message="Medicine updated successfully", data={"id": existing.id, "product_id": existing.product_id})
-
+        return ok(message="Medicine updated successfully", data={
+            "id": existing.id,
+            "product_id": existing.product_id,
+            "batch_no": existing.batch_no,
+            "name": existing.name,
+            "generic_name": existing.generic_name,
+            "type": existing.type,
+            "distributor": existing.distributor,
+            "supplier_name": payload.supplier_name or existing.distributor,
+            "distributor_company": payload.distributor_company,
+            "distributor_mobile": payload.distributor_mobile,
+            "purchase_price": existing.purchase_price,
+            "selling_price": existing.selling_price,
+            "stock_unit": existing.stock_unit,
+            "quantity": existing.quantity,
+            "expiration_date": existing.expiration_date.isoformat() if existing.expiration_date else None,
+            "manufacture_date": payload.manufacture_date,
+            "category": existing.category,
+            "sub_category": existing.sub_category,
+            "hospital_id": existing.hospital_id,
+        })
     new_med = PharmacyMedicine(
         id=str(uuid.uuid4()),
         product_id=payload.product_id,
@@ -361,7 +384,7 @@ async def public_add_medicine(
         name=payload.name,
         generic_name=payload.generic_name,
         type=payload.type,
-        distributor=payload.distributor,
+        distributor=payload.distributor or payload.supplier_name,
         purchase_price=payload.purchase_price,
         selling_price=payload.selling_price,
         stock_unit=payload.stock_unit,
@@ -375,7 +398,27 @@ async def public_add_medicine(
     db.add(new_med)
     db.commit()
     await _broadcast_inventory_update(user_hospital)
-    return ok(message="Medicine added successfully", data={"id": new_med.id, "product_id": new_med.product_id})
+    return ok(message="Medicine added successfully", data={
+        "id": new_med.id,
+        "product_id": new_med.product_id,
+        "batch_no": new_med.batch_no,
+        "name": new_med.name,
+        "generic_name": new_med.generic_name,
+        "type": new_med.type,
+        "distributor": new_med.distributor,
+        "supplier_name": payload.supplier_name or new_med.distributor,
+        "distributor_company": payload.distributor_company,
+        "distributor_mobile": payload.distributor_mobile,
+        "purchase_price": new_med.purchase_price,
+        "selling_price": new_med.selling_price,
+        "stock_unit": new_med.stock_unit,
+        "quantity": new_med.quantity,
+        "expiration_date": new_med.expiration_date.isoformat() if new_med.expiration_date else None,
+        "manufacture_date": payload.manufacture_date,
+        "category": new_med.category,
+        "sub_category": new_med.sub_category,
+        "hospital_id": new_med.hospital_id,
+    })
 
 async def _sync_medicines_internal(db: Session, hospital_id: Optional[str] = None) -> Dict[str, int]:
     from app.services.pharmacy_inventory_service import list_medicines as list_legacy
@@ -665,7 +708,7 @@ async def add_medicine(
         name=payload.name,
         generic_name=payload.generic_name,
         type=payload.type,
-        distributor=payload.distributor,
+        distributor=payload.distributor or payload.supplier_name,
         purchase_price=payload.purchase_price,
         selling_price=payload.selling_price,
         stock_unit=payload.stock_unit,
@@ -1283,6 +1326,9 @@ async def get_top_selling_medicines(
             case((PharmacySale.total_amount.isnot(None), PharmacySale.total_amount),
                  else_=PharmacySale.total_price)
         ), 0).label("revenue"),
+        func.coalesce(func.sum(
+            PharmacySale.unit_price * PharmacySale.quantity
+        ), 0).label("total_selling"),
         func.count(PharmacySale.id).label("transactions")
     ).filter(
         PharmacySale.hospital_id == h_id,
@@ -1296,15 +1342,31 @@ async def get_top_selling_medicines(
         func.sum(PharmacySale.quantity).desc()
     ).limit(limit).all()
 
-    return ok(data=[
-        {
+    # Join with PharmacyMedicine to get purchase_price for profit calculation
+    result = []
+    for row in rows:
+        medicine = db.query(PharmacyMedicine).filter(
+            PharmacyMedicine.name == row.medicine_name,
+            PharmacyMedicine.hospital_id == h_id,
+            PharmacyMedicine.is_deleted.isnot(True)
+        ).first()
+
+        purchase_price = float(medicine.purchase_price or 0) if medicine else 0.0
+        units_sold = int(row.units_sold or 0)
+        revenue = round(float(row.revenue or 0), 2)
+        cost = round(purchase_price * units_sold, 2)
+        profit = round(revenue - cost, 2)
+
+        result.append({
             "medicine_name": row.medicine_name,
-            "units_sold": int(row.units_sold or 0),
-            "revenue": round(float(row.revenue or 0), 2),
+            "units_sold": units_sold,
+            "revenue": revenue,
+            "cost": cost,
+            "profit": profit,
             "transactions": row.transactions
-        }
-        for row in rows
-    ])
+        })
+
+    return ok(data=result)
 
 
 # ── GET /sales/export ─────────────────────────────────────────────────────────
