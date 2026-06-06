@@ -134,7 +134,12 @@ async def get_pharmacy_sales_summary(
 ):
     def _sum_sales(start: datetime, end: datetime) -> float:
         q = db.query(
-            func.coalesce(func.sum(PharmacySale.total_price), 0)
+            func.coalesce(func.sum(
+                case(
+                    (PharmacySale.total_amount.isnot(None), PharmacySale.total_amount),
+                    else_=PharmacySale.total_price
+                )
+            ), 0)
         ).filter(PharmacySale.sold_at >= start, PharmacySale.sold_at < end)
         if hospital_id:
             q = q.filter(PharmacySale.hospital_id == hospital_id)
@@ -154,7 +159,12 @@ async def get_pharmacy_sales_summary(
         return round(((current - previous) / previous) * 100, 1)
 
     total_query = db.query(
-        func.coalesce(func.sum(PharmacySale.total_price), 0).label('total_revenue'),
+        func.coalesce(func.sum(
+            case(
+                (PharmacySale.total_amount.isnot(None), PharmacySale.total_amount),
+                else_=PharmacySale.total_price
+            )
+        ), 0).label('total_revenue'),
         func.count(PharmacySale.id).label('total_count')
     )
     if hospital_id:
