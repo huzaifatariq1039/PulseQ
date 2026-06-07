@@ -252,6 +252,7 @@ async def receptionist_manage_doctors(
         timings = f"{start_fmt} - {end_fmt}" if start_fmt and end_fmt else None
         dept = it.get("specialization")
         fee_val = it.get("consultation_fee")
+        TOKEN_FEE = 50
         out.append({
             "id": it.get("id"),
             "name": it.get("name"),
@@ -259,6 +260,8 @@ async def receptionist_manage_doctors(
             "qualifications": it.get("specialization") or it.get("subcategory") or dept,
             "fee": fee_val,
             "consultation_fee": fee_val,
+            "total_fee": round(float(fee_val or 0) + TOKEN_FEE, 2),
+            "token_fee": TOKEN_FEE,
             "session_fee": it.get("session_fee"),
             "start_time": it.get("start_time"),
             "end_time": it.get("end_time"),
@@ -267,7 +270,6 @@ async def receptionist_manage_doctors(
             "status": str(it.get("status") or "available").lower(),
             "hospital_id": it.get("hospital_id"),
         })
-
     return {"success": True, "data": out, "meta": {"page": page, "page_size": page_size, "total": total}}
 
 
@@ -604,19 +606,27 @@ async def list_doctors_public(
         query = query.filter(
             Doctor.subcategory.ilike(sub_norm) | Doctor.specialization.ilike(sub_norm)
         )
+    TOKEN_FEE = 50
     doctors = query.order_by(Doctor.created_at.desc()).limit(limit).all()
     results = []
     for doctor in doctors:
-        results.append(DoctorResponse(
-            id=doctor.id, name=doctor.name, specialization=doctor.specialization,
-            department=doctor.specialization, subcategory=doctor.subcategory,
-            hospital_id=doctor.hospital_id, consultation_fee=doctor.consultation_fee,
-            session_fee=doctor.session_fee, status=doctor.status,
-            available_days=doctor.available_days or [], start_time=doctor.start_time,
-            end_time=doctor.end_time, avatar_initials=doctor.avatar_initials,
-            rating=doctor.rating, review_count=doctor.review_count,
-            created_at=doctor.created_at, updated_at=doctor.updated_at,
-        ))
+        doc_dict = {
+            "id": doctor.id, "name": doctor.name, "specialization": doctor.specialization,
+            "department": doctor.specialization, "subcategory": doctor.subcategory,
+            "hospital_id": doctor.hospital_id, "consultation_fee": doctor.consultation_fee,
+            "total_fee": round(float(doctor.consultation_fee or 0) + TOKEN_FEE, 2),
+            "token_fee": TOKEN_FEE,
+            "session_fee": doctor.session_fee, "status": doctor.status,
+            "available_days": doctor.available_days or [], "start_time": doctor.start_time,
+            "end_time": doctor.end_time, "avatar_initials": doctor.avatar_initials,
+            "rating": doctor.rating, "review_count": doctor.review_count,
+            "created_at": doctor.created_at, "updated_at": doctor.updated_at,
+            "email": doctor.email, "phone": doctor.phone,
+            "has_session": doctor.has_session, "pricing_type": doctor.pricing_type,
+            "patients_per_day": doctor.patients_per_day, "user_id": doctor.user_id,
+            "fee": None, "per_session_fee": None,
+        }
+        results.append(doc_dict)
     return results
 
 
@@ -1213,10 +1223,14 @@ async def get_doctor(doctor_id: str, db: Session = Depends(get_db)):
 # Helper to avoid repeating 15-field dict literals everywhere
 # ---------------------------------------------------------------------------
 def _doctor_to_dict(doctor: Doctor) -> Dict[str, Any]:
+    TOKEN_FEE = 50
     return {
         "id": doctor.id, "name": doctor.name, "specialization": doctor.specialization,
         "subcategory": doctor.subcategory, "hospital_id": doctor.hospital_id,
-        "consultation_fee": doctor.consultation_fee, "session_fee": doctor.session_fee,
+        "consultation_fee": doctor.consultation_fee,
+        "total_fee": round(float(doctor.consultation_fee or 0) + TOKEN_FEE, 2),
+        "token_fee": TOKEN_FEE,
+        "session_fee": doctor.session_fee,
         "status": doctor.status, "available_days": doctor.available_days or [],
         "start_time": doctor.start_time, "end_time": doctor.end_time,
         "avatar_initials": doctor.avatar_initials, "rating": doctor.rating,
