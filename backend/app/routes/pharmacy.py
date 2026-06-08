@@ -352,6 +352,8 @@ async def public_add_medicine(
         existing.generic_name = payload.generic_name
         existing.type = payload.type
         existing.distributor = payload.distributor or payload.supplier_name
+        existing.distributor_company = payload.distributor_company
+        existing.distributor_mobile = payload.distributor_mobile
         existing.purchase_price = payload.purchase_price
         existing.selling_price = payload.selling_price
         existing.stock_unit = payload.stock_unit
@@ -395,6 +397,8 @@ async def public_add_medicine(
         generic_name=payload.generic_name,
         type=payload.type,
         distributor=payload.distributor or payload.supplier_name,
+        distributor_company=payload.distributor_company,
+        distributor_mobile=payload.distributor_mobile,
         purchase_price=payload.purchase_price,
         selling_price=payload.selling_price,
         stock_unit=payload.stock_unit,
@@ -508,9 +512,11 @@ async def get_all_medicines_staff(
     cols = (
         PharmacyMedicine.id, PharmacyMedicine.product_id, PharmacyMedicine.batch_no,
         PharmacyMedicine.name, PharmacyMedicine.generic_name, PharmacyMedicine.type,
-        PharmacyMedicine.distributor, PharmacyMedicine.purchase_price,
+        PharmacyMedicine.distributor, PharmacyMedicine.distributor_company,
+        PharmacyMedicine.distributor_mobile, PharmacyMedicine.purchase_price,
         PharmacyMedicine.selling_price, PharmacyMedicine.stock_unit,
         PharmacyMedicine.quantity, PharmacyMedicine.expiration_date,
+        PharmacyMedicine.manufacture_date,
         PharmacyMedicine.category, PharmacyMedicine.sub_category,
         PharmacyMedicine.hospital_id, PharmacyMedicine.created_at,
         PharmacyMedicine.updated_at,
@@ -530,12 +536,15 @@ async def get_all_medicines_staff(
             "id": r.id, "product_id": r.product_id, "batch_no": r.batch_no,
             "name": r.name, "generic_name": r.generic_name, "type": r.type,
             "distributor": r.distributor,
+            "distributor_company": r.distributor_company,
+            "distributor_mobile": r.distributor_mobile,
             "purchase_price": float(r.purchase_price or 0),
             "selling_price": float(r.selling_price or 0),
             "stock_unit": r.stock_unit,
             "quantity": int(r.quantity or 0),
             "low_stock": (r.quantity or 0) < 5,
             "expiration_date": r.expiration_date.isoformat() if r.expiration_date else None,
+            "manufacture_date": r.manufacture_date.isoformat() if r.manufacture_date else None,
             "category": r.category, "sub_category": r.sub_category,
             "hospital_id": r.hospital_id,
             "created_at": r.created_at.isoformat() if r.created_at else None,
@@ -567,9 +576,11 @@ async def get_all_medicines(
     cols = (
         PharmacyMedicine.id, PharmacyMedicine.product_id, PharmacyMedicine.batch_no,
         PharmacyMedicine.name, PharmacyMedicine.generic_name, PharmacyMedicine.type,
-        PharmacyMedicine.distributor, PharmacyMedicine.purchase_price,
+        PharmacyMedicine.distributor, PharmacyMedicine.distributor_company,
+        PharmacyMedicine.distributor_mobile, PharmacyMedicine.purchase_price,
         PharmacyMedicine.selling_price, PharmacyMedicine.stock_unit,
         PharmacyMedicine.quantity, PharmacyMedicine.expiration_date,
+        PharmacyMedicine.manufacture_date,
         PharmacyMedicine.category, PharmacyMedicine.sub_category,
         PharmacyMedicine.hospital_id, PharmacyMedicine.created_at,
         PharmacyMedicine.updated_at,
@@ -594,12 +605,16 @@ async def get_all_medicines(
             "id": r.id, "product_id": r.product_id, "batch_no": r.batch_no,
             "name": r.name, "generic_name": r.generic_name, "type": r.type,
             "distributor": r.distributor,
+            "supplier_name": r.distributor,
+            "distributor_company": r.distributor_company,
+            "distributor_mobile": r.distributor_mobile,
             "purchase_price": float(r.purchase_price or 0),
             "selling_price": float(r.selling_price or 0),
             "stock_unit": r.stock_unit,
             "quantity": int(r.quantity or 0),
             "low_stock": (r.quantity or 0) < 5,
             "expiration_date": r.expiration_date.isoformat() if r.expiration_date else None,
+            "manufacture_date": r.manufacture_date.isoformat() if r.manufacture_date else None,
             "category": r.category, "sub_category": r.sub_category,
             "hospital_id": r.hospital_id,
             "created_at": r.created_at.isoformat() if r.created_at else None,
@@ -719,6 +734,8 @@ async def add_medicine(
         generic_name=payload.generic_name,
         type=payload.type,
         distributor=payload.distributor or payload.supplier_name,
+        distributor_company=payload.distributor_company,
+        distributor_mobile=payload.distributor_mobile,
         purchase_price=payload.purchase_price,
         selling_price=payload.selling_price,
         stock_unit=payload.stock_unit,

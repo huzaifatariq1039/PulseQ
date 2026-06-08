@@ -291,6 +291,8 @@ class PharmacyMedicine(Base):
     generic_name = Column(String(200), nullable=True, index=True)
     type = Column(String(100), nullable=True)
     distributor = Column(String(200), nullable=True)
+    distributor_company = Column(String(200), nullable=True)
+    distributor_mobile = Column(String(20), nullable=True)
     purchase_price = Column(Float, nullable=False)
     selling_price = Column(Float, nullable=False)
     stock_unit = Column(String(50), nullable=True)
