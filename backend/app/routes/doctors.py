@@ -585,7 +585,7 @@ async def create_doctor(
 # ==================== PUBLIC ENDPOINTS (public_router) ====================
 # FIX 3: Static paths before dynamic /{doctor_id} — on BOTH routers
 
-@public_router.get("/", response_model=List[DoctorResponse])
+@public_router.get("/")
 async def list_doctors_public(
     hospital_id: Optional[str] = Query(None),
     specialization: Optional[str] = Query(None),
@@ -630,7 +630,7 @@ async def list_doctors_public(
     return results
 
 
-@router.get("/", response_model=List[DoctorResponse])
+@router.get("/")
 async def list_doctors_staff(
     hospital_id: Optional[str] = Query(None),
     specialization: Optional[str] = Query(None),

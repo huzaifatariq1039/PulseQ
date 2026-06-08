@@ -362,8 +362,14 @@ class DoctorResponse(DoctorBase):
     department: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+    total_fee: Optional[float] = None   # ✅ ADD
+    token_fee: Optional[float] = None   # ✅ ADD
+    phone: Optional[str] = None         # ✅ ADD
     
-    model_config = ConfigDict(extra='forbid')
+    class Config:
+        extra = "allow"  
+    
+    # model_config = ConfigDict(extra='forbid')
 
 
 # Receptionist Models
