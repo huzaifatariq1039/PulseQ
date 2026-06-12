@@ -362,9 +362,9 @@ class DoctorResponse(DoctorBase):
     department: Optional[str] = None
     created_at: datetime
     updated_at: datetime
-    total_fee: Optional[float] = None   # ✅ ADD
-    token_fee: Optional[float] = None   # ✅ ADD
-    phone: Optional[str] = None         # ✅ ADD
+    total_fee: Optional[float] = None   
+    token_fee: Optional[float] = None   
+    phone: Optional[str] = None       
     
     class Config:
         extra = "allow"  

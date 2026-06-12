@@ -836,37 +836,40 @@ async def delete_item(
     db: Session = Depends(get_db),
     current: TokenData = Depends(get_current_active_user),
 ) -> Any:
-    from app.db_models import PharmacyMedicine
-    
     med = db.query(PharmacyMedicine).filter(
         PharmacyMedicine.id == item_id
     ).first()
 
-    # If hospital_id exists on token, verify ownership
     if med and current.hospital_id and med.hospital_id and med.hospital_id != current.hospital_id:
         raise HTTPException(status_code=403, detail="Access denied")
-    
+
     if not med:
         try:
             med = db.query(PharmacyMedicine).filter(
                 PharmacyMedicine.product_id == int(item_id),
-                PharmacyMedicine.hospital_id == current.hospital_id
+                or_(
+                    PharmacyMedicine.hospital_id == current.hospital_id,
+                    PharmacyMedicine.hospital_id.is_(None)
+                )
             ).first()
         except (ValueError, TypeError):
             pass
-    
+
     if not med:
         raise HTTPException(status_code=404, detail="Medicine not found")
-    
+
     deleted_name = med.name
     deleted_id = med.id
-    
+
     med.is_deleted = True
     med.deleted_at = datetime.utcnow()
-    
+
+    if not med.hospital_id and current.hospital_id:
+        med.hospital_id = current.hospital_id
+
     db.commit()
     await _broadcast_inventory_update(current.hospital_id)
-    
+
     return ok(message=f"Medicine '{deleted_name}' deleted successfully", data={"deleted_id": deleted_id})
 
 @router.patch("/items/{item_id}/restore", dependencies=[Depends(require_roles("pharmacy", "admin"))])
@@ -877,14 +880,20 @@ async def restore_item(
 ) -> Any:
     med = db.query(PharmacyMedicine).filter(
         PharmacyMedicine.id == item_id,
-        PharmacyMedicine.hospital_id == current.hospital_id
+        or_(
+            PharmacyMedicine.hospital_id == current.hospital_id,
+            PharmacyMedicine.hospital_id.is_(None)
+        )
     ).first()
-    
+
     if not med:
         try:
             med = db.query(PharmacyMedicine).filter(
                 PharmacyMedicine.product_id == int(item_id),
-                PharmacyMedicine.hospital_id == current.hospital_id
+                or_(
+                    PharmacyMedicine.hospital_id == current.hospital_id,
+                    PharmacyMedicine.hospital_id.is_(None)
+                )
             ).first()
         except (ValueError, TypeError):
             pass
@@ -898,8 +907,11 @@ async def restore_item(
     med.is_deleted = False
     med.deleted_at = None
     med.updated_at = datetime.utcnow()
-    db.commit()
 
+    if not med.hospital_id and current.hospital_id:
+        med.hospital_id = current.hospital_id
+
+    db.commit()
     await _broadcast_inventory_update(current.hospital_id)
 
     return ok(
