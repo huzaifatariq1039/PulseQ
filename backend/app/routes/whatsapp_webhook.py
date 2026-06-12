@@ -96,7 +96,7 @@ async def twilio_whatsapp_webhook(
     if forwarded_host:
         webhook_url = f"{forwarded_proto}://{forwarded_host}/api/v1/webhooks/twilio/webhook"
     else:
-        webhook_url = "http://pulseq-api-env.eba-i2evcmmi.ap-south-1.elasticbeanstalk.com/api/v1/webhooks/twilio/webhook"
+        webhook_url = "https://api.pulseq.health/api/v1/webhooks/twilio/webhook"
 
     logger.info(f"[WEBHOOK] Incoming request, URL: {webhook_url}")
 
