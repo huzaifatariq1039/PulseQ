@@ -614,12 +614,7 @@ async def get_all_medicines(
     )
     base = db.query(*cols).filter(PharmacyMedicine.is_deleted.isnot(True))
     if hospital_id:
-        base = base.filter(
-            or_(
-                PharmacyMedicine.hospital_id == hospital_id,
-                PharmacyMedicine.hospital_id.is_(None)
-            )
-        )
+        base = base.filter(PharmacyMedicine.hospital_id == hospital_id)
     
     if product_id is not None:
         base = base.filter(PharmacyMedicine.product_id == product_id)
