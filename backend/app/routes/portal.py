@@ -426,6 +426,10 @@ async def admin_dashboard(
     hospital_id: Optional[str] = Query(None),
     logs_limit: int = Query(10, ge=1, le=50),
 ):
+    # Admins are locked to their own hospital. Patients (browsing) can pass hospital_id freely.
+    if getattr(current, "role", None) == "admin":
+        hospital_id = current.hospital_id
+
     doc_query = db.query(Doctor)
     if hospital_id:
         doc_query = doc_query.filter(Doctor.hospital_id == hospital_id)
@@ -525,14 +529,23 @@ async def admin_dashboard(
     )
 
 
+
 @router.get("/receptionist/dashboard", dependencies=[Depends(require_roles("receptionist", "patient", "admin"))])
 async def receptionist_dashboard(
     db: Session = Depends(get_db),
     current: TokenData = Depends(get_current_active_user),
-    hospital_id: str = Query(...),
+    hospital_id: Optional[str] = Query(None),
     doctor_id: Optional[str] = Query(None),
     upcoming_limit: int = Query(5, ge=0, le=50),
 ) -> Dict[str, Any]:
+    # Receptionists/admins are locked to their own hospital. Patients can pass hospital_id.
+    if getattr(current, "role", None) in ("receptionist", "admin"):
+        hospital_id = current.hospital_id
+        if not hospital_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No hospital associated with this account")
+    elif not hospital_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="hospital_id is required")
+    
     tz_offset_minutes = 300 
     now_utc = datetime.utcnow()
     now_local = now_utc + timedelta(minutes=tz_offset_minutes)
@@ -684,7 +697,8 @@ async def receptionist_create_walkin_token(
     db: Session = Depends(get_db),
     current: TokenData = Depends(get_current_active_user),
 ) -> Dict[str, Any]:
-    hospital_id = payload.get("hospital_id")
+    # Force hospital_id to the logged-in receptionist/admin's own hospital
+    hospital_id = current.hospital_id
     doctor_id = payload.get("doctor_id")
     patient_name = payload.get("patient_name")
     phone = payload.get("phone")
@@ -698,6 +712,9 @@ async def receptionist_create_walkin_token(
     doctor = db.query(Doctor).filter(Doctor.id == doctor_id).first()
     if not doctor:
         raise HTTPException(status_code=404, detail="Doctor not found")
+
+    if doctor.hospital_id != hospital_id:
+        raise HTTPException(status_code=403, detail="Access denied: doctor belongs to a different hospital")
 
     doctor_data = {k: v for k, v in doctor.__dict__.items() if not k.startswith('_')}
     
@@ -949,8 +966,12 @@ async def receptionist_skip_token(
     token = db.query(Token).filter(Token.id == token_id).first()
     if not token:
         raise HTTPException(status_code=404, detail="Token not found")
+
+    if current.role in ("receptionist", "admin") and token.hospital_id != current.hospital_id:
+        raise HTTPException(status_code=403, detail="Access denied: token belongs to a different hospital")
         
     token.status = "skipped"
+
     token.updated_at = datetime.utcnow()
     token.skipped_at = datetime.utcnow()
     db.commit()
@@ -1042,6 +1063,9 @@ async def receptionist_update_token(
     token = db.query(Token).filter(Token.id == token_id).first()
     if not token:
         raise HTTPException(status_code=404, detail="Token not found")
+
+    if token.hospital_id != current.hospital_id:
+        raise HTTPException(status_code=403, detail="Access denied: token belongs to a different hospital")
     
     if str(token.status).lower() in ["cancelled", "completed"]:
         raise HTTPException(status_code=400, detail=f"Cannot edit token with status: {token.status}")
@@ -1142,6 +1166,9 @@ async def receptionist_delete_token(
     token = db.query(Token).filter(Token.id == token_id).first()
     if not token:
         raise HTTPException(status_code=404, detail="Token not found")
+
+    if token.hospital_id != current.hospital_id:
+        raise HTTPException(status_code=403, detail="Access denied: token belongs to a different hospital")
     
     if str(token.status).lower() == "completed":
         raise HTTPException(status_code=400, detail="Cannot delete completed token")

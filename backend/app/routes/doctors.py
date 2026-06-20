@@ -192,6 +192,9 @@ async def update_doctor_status(
     if not doctor:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Doctor not found")
 
+    if doctor.hospital_id != getattr(current_user, "hospital_id", None):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied: doctor belongs to a different hospital")
+
     if new_status == "on_leave":
         from app.services.doctor_leave_service import DoctorLeaveService
         leave_action = (payload or {}).get("leave_action") or (payload or {}).get("leave_handling")
@@ -218,15 +221,16 @@ async def update_doctor_status(
 async def receptionist_manage_doctors(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_active_user),
-    hospital_id: Optional[str] = Query(None),
     department: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
 ) -> Dict[str, Any]:
-    query = db.query(Doctor)
-    if hospital_id:
-        query = query.filter(Doctor.hospital_id == hospital_id)
+    hospital_id = getattr(current_user, "hospital_id", None)
+    if not hospital_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No hospital associated with this account")
+    query = db.query(Doctor).filter(Doctor.hospital_id == hospital_id)
+
     if department:
         dep = str(department).strip()
         if dep:
@@ -279,9 +283,15 @@ async def receptionist_list_departments(
     current_user=Depends(get_current_active_user),
     hospital_id: Optional[str] = Query(None),
 ) -> Dict[str, Any]:
+    # Patients can still browse any hospital's departments via hospital_id param.
+    # Admin/receptionist are locked to their own hospital.
+    user_role = getattr(current_user, "role", None)
+    if user_role in ("admin", "receptionist"):
+        hospital_id = getattr(current_user, "hospital_id", None)
     query = db.query(Doctor)
     if hospital_id:
         query = query.filter(Doctor.hospital_id == hospital_id)
+    
     doctors = query.all()
     names = [str(d.specialization or "").strip() for d in doctors if d.specialization]
     out = sorted(set(names), key=lambda x: x.lower())
@@ -298,13 +308,14 @@ async def create_department(
 ) -> Dict[str, Any]:
     import uuid
     name = str(payload.get("name") or "").strip()
-    hospital_id = str(payload.get("hospital_id") or "").strip()
+    # Force hospital_id to admin's own hospital — ignore whatever is sent in payload
+    hospital_id = str(getattr(current_user, "hospital_id", "") or "").strip()
     description = str(payload.get("description") or "").strip()
 
     if not name:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Department name is required")
     if not hospital_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Hospital ID is required")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No hospital associated with this account")
 
     hospital = db.query(Hospital).filter(Hospital.id == hospital_id).first()
     if not hospital:
@@ -336,11 +347,13 @@ async def create_department(
 @router.get("/departments/list", dependencies=[Depends(require_roles("admin", "receptionist"))])
 async def get_departments_list(
     db: Session = Depends(get_db),
-    hospital_id: Optional[str] = Query(None),
+    current_user=Depends(get_current_active_user),
 ) -> Dict[str, Any]:
-    query = db.query(Department)
-    if hospital_id:
-        query = query.filter(Department.hospital_id == hospital_id)
+    hospital_id = getattr(current_user, "hospital_id", None)
+    if not hospital_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No hospital associated with this account")
+    query = db.query(Department).filter(Department.hospital_id == hospital_id)
+
     departments = query.order_by(Department.name.asc()).all()
     return ok(data=[
         {"id": d.id, "name": d.name, "hospital_id": d.hospital_id, "created_at": d.created_at}
@@ -360,6 +373,9 @@ async def update_department(
     if not department:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Department not found")
 
+    if department.hospital_id != getattr(current_user, "hospital_id", None):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied: department belongs to a different hospital")
+
     if "name" in payload:
         new_name = str(payload["name"]).strip()
         if not new_name:
@@ -367,13 +383,7 @@ async def update_department(
         department.name = new_name
     if "description" in payload:
         department.description = str(payload["description"]).strip()
-    if "hospital_id" in payload:
-        new_hospital_id = str(payload["hospital_id"]).strip()
-        if new_hospital_id:
-            hospital = db.query(Hospital).filter(Hospital.id == new_hospital_id).first()
-            if not hospital:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Hospital not found")
-            department.hospital_id = new_hospital_id
+    # hospital_id is locked — an admin cannot move a department to another hospital
 
     db.commit()
     db.refresh(department)
@@ -394,6 +404,9 @@ async def delete_department(
     department = db.query(Department).filter(Department.id == department_id).first()
     if not department:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Department not found")
+
+    if department.hospital_id != getattr(current_user, "hospital_id", None):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied: department belongs to a different hospital")
 
     doctors_count = db.query(Doctor).filter(
         Doctor.specialization == department.name,
@@ -418,9 +431,16 @@ async def create_doctor(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_active_user),
 ):
+    # Force hospital_id to the logged-in admin/receptionist's own hospital
+    if getattr(current_user, "hospital_id", None):
+        doctor.hospital_id = current_user.hospital_id
+    if not doctor.hospital_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No hospital associated with this account")
+
     existing_doctor = db.query(Doctor).filter(
         Doctor.email == doctor.email, Doctor.hospital_id == doctor.hospital_id
     ).first()
+
     if existing_doctor:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -945,6 +965,9 @@ async def receptionist_update_doctor(
     if not doctor:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Doctor not found")
 
+    if doctor.hospital_id != getattr(current_user, "hospital_id", None):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied: doctor belongs to a different hospital")
+
     allowed = {
         "name", "department", "specialization", "subcategory", "phone", "email",
         "experience_years", "fee", "consultation_fee", "session_fee", "available_days",
@@ -1038,6 +1061,9 @@ async def delete_doctor(
         doctor = db.query(Doctor).filter(Doctor.id == doctor_id).first()
         if not doctor:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Doctor not found")
+
+        if doctor.hospital_id != getattr(current_user, "hospital_id", None):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied: doctor belongs to a different hospital")
 
         active_tokens = db.query(Token).filter(
             Token.doctor_id == doctor_id,

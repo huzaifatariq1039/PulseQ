@@ -95,12 +95,18 @@ async def _send_walkin_token_notification(
 @router.post("/receptionists", response_model=ReceptionistResponse, dependencies=[Depends(require_roles("admin"))])
 async def create_receptionist(
     receptionist: ReceptionistCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current: TokenData = Depends(get_current_active_user),
 ):
     """Create a new receptionist user (Admin only).
     
-    This creates a User record with the 'receptionist' role.
+    This creates a User record with the 'receptionist' role, scoped to the admin's own hospital.
     """
+    # Force hospital_id to admin's own hospital — ignore whatever is sent in payload
+    if not current.hospital_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No hospital associated with this account")
+    receptionist.hospital_id = current.hospital_id
+
     # 1. Check if user with this email already exists
     existing_user = db.query(User).filter(func.lower(User.email) == receptionist.email.lower()).first()
     if existing_user:
@@ -162,12 +168,14 @@ def _infer_has_session(dept_text: str) -> bool:
 async def reception_queue(
     db: Session = Depends(get_db),
     current: TokenData = Depends(get_current_active_user),
-    hospital_id: str = Query(..., description="Hospital id managed by receptionist"),
     doctor_id: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
 ) -> Dict[str, Any]:
     """Receptionist Queue View from PostgreSQL"""
+    hospital_id = current.hospital_id
+    if not hospital_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No hospital associated with this account")
     today = datetime.utcnow().date()
     query = db.query(Token).filter(
         Token.hospital_id == hospital_id, 
@@ -263,12 +271,14 @@ async def reception_queue(
 async def reception_tokens(
     db: Session = Depends(get_db),
     current: TokenData = Depends(get_current_active_user),
-    hospital_id: str = Query(...),
     doctor_id: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
 ) -> Dict[str, Any]:
     """Receptionist view of slot bookings from PostgreSQL"""
+    hospital_id = current.hospital_id
+    if not hospital_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No hospital associated with this account")
     query = db.query(Token).filter(Token.hospital_id == hospital_id)
     if doctor_id:
         query = query.filter(Token.doctor_id == doctor_id)
@@ -306,7 +316,8 @@ async def receptionist_create_walkin_token(
     Creates a Walk-in token from the receptionist portal. 
     Uses the exact same XGBoost AI Wait-Time engine and WhatsApp logic as the Patient App.
     """
-    hospital_id = payload.get("hospital_id")
+    # Force hospital_id to the logged-in receptionist/admin's own hospital
+    hospital_id = current.hospital_id
     doctor_id = payload.get("doctor_id")
     patient_name = payload.get("patient_name")
     phone = payload.get("phone")
@@ -320,6 +331,10 @@ async def receptionist_create_walkin_token(
     doctor = db.query(Doctor).filter(Doctor.id == doctor_id).first()
     if not doctor:
         raise HTTPException(status_code=404, detail="Doctor not found")
+
+    # Ownership check: doctor must belong to the receptionist's own hospital
+    if doctor.hospital_id != hospital_id:
+        raise HTTPException(status_code=403, detail="Access denied: doctor belongs to a different hospital")
 
     doctor_data = {k: v for k, v in doctor.__dict__.items() if not k.startswith('_')}
     
@@ -574,7 +589,10 @@ async def receptionist_skip_token(
     token = db.query(Token).filter(Token.id == token_id).first()
     if not token:
         raise HTTPException(status_code=404, detail="Token not found")
-        
+
+    if current.role in ("receptionist", "admin") and token.hospital_id != current.hospital_id:
+        raise HTTPException(status_code=403, detail="Access denied: token belongs to a different hospital")
+
     token.status = "skipped"
     token.updated_at = datetime.utcnow()
     token.skipped_at = datetime.utcnow()
@@ -667,6 +685,9 @@ async def receptionist_update_token(
     token = db.query(Token).filter(Token.id == token_id).first()
     if not token:
         raise HTTPException(status_code=404, detail="Token not found")
+
+    if token.hospital_id != current.hospital_id:
+        raise HTTPException(status_code=403, detail="Access denied: token belongs to a different hospital")
     
     if str(token.status).lower() in ["cancelled", "completed"]:
         raise HTTPException(status_code=400, detail=f"Cannot edit token with status: {token.status}")
@@ -767,6 +788,9 @@ async def receptionist_delete_token(
     token = db.query(Token).filter(Token.id == token_id).first()
     if not token:
         raise HTTPException(status_code=404, detail="Token not found")
+
+    if token.hospital_id != current.hospital_id:
+        raise HTTPException(status_code=403, detail="Access denied: token belongs to a different hospital")
     
     if str(token.status).lower() == "completed":
         raise HTTPException(status_code=400, detail="Cannot delete completed token")

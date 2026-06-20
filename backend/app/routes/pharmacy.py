@@ -87,8 +87,9 @@ def _normalize_date_str(v: Optional[str]) -> Optional[str]:
 @router.get("/dashboard/stats", dependencies=[Depends(require_roles("pharmacy", "admin"))])
 async def get_pharmacy_dashboard_stats(
     db: Session = Depends(get_db),
-    hospital_id: Optional[str] = Query(None),
+    current: TokenData = Depends(get_current_active_user),
 ):
+    hospital_id = current.hospital_id
     now = datetime.utcnow()
 
     query = db.query(
@@ -130,8 +131,9 @@ async def get_pharmacy_dashboard_stats(
 @router.get("/reports/sales-summary", dependencies=[Depends(require_roles("pharmacy", "admin"))])
 async def get_pharmacy_sales_summary(
     db: Session = Depends(get_db),
-    hospital_id: Optional[str] = Query(None),
+    current: TokenData = Depends(get_current_active_user),
 ):
+    hospital_id = current.hospital_id
     def _sum_sales(start: datetime, end: datetime) -> float:
         q = db.query(
             func.coalesce(func.sum(
@@ -212,9 +214,11 @@ async def get_pharmacy_sales_summary(
 @router.get("/reports/revenue-chart", dependencies=[Depends(require_roles("pharmacy", "admin"))])
 async def get_revenue_chart_data(
     db: Session = Depends(get_db),
-    hospital_id: Optional[str] = Query(None),
+    current: TokenData = Depends(get_current_active_user),
     days: int = Query(7, ge=1, le=30)
 ):
+    hospital_id = current.hospital_id
+
     now = datetime.utcnow()
     start_date = (now - timedelta(days=days-1)).replace(hour=0, minute=0, second=0, microsecond=0)
     
@@ -249,10 +253,11 @@ async def get_revenue_chart_data(
 @router.get("/sales/history", dependencies=[Depends(require_roles("pharmacy", "admin"))])
 async def get_sales_history(
     db: Session = Depends(get_db),
-    hospital_id: Optional[str] = Query(None),
+    current: TokenData = Depends(get_current_active_user),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
 ):
+    hospital_id = current.hospital_id
     query = db.query(PharmacySale)
     if hospital_id:
         query = query.filter(PharmacySale.hospital_id == hospital_id)
@@ -280,11 +285,11 @@ async def get_sales_history(
 @router.get("/external/pos/sales/history", dependencies=[Depends(require_roles("pharmacy", "admin"))])
 async def get_pos_sales_history_alias(
     db: Session = Depends(get_db),
-    hospital_id: Optional[str] = Query(None),
+    current: TokenData = Depends(get_current_active_user),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
 ):
-    return await get_sales_history(db, hospital_id, page, page_size)
+    return await get_sales_history(db, current, page, page_size)
 
 @public_router.get("/search-medicine")
 async def search_medicine(
@@ -500,14 +505,12 @@ async def sync_medicines_from_legacy(
 async def get_all_medicines_staff(
     db: Session = Depends(get_db),
     current: TokenData = Depends(get_current_active_user),
-    hospital_id: Optional[str] = Query(None, description="Filter by hospital ID"),
     product_id: Optional[int] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(500, ge=1, le=5000),  
 ) -> Dict[str, Any]:
     """Staff endpoint to get medicines for their hospital"""
-    # Use current user's hospital_id if not provided
-    hid = hospital_id or current.hospital_id or ""
+    hid = current.hospital_id or ""
     
     cols = (
         PharmacyMedicine.id, PharmacyMedicine.product_id, PharmacyMedicine.batch_no,
@@ -757,7 +760,7 @@ async def add_medicine(
 @router.get("/items", dependencies=[Depends(require_roles("pharmacy", "admin"))])
 async def list_items(
     db: Session = Depends(get_db),
-    hospital_id: Optional[str] = Query(None),
+    current: TokenData = Depends(get_current_active_user),
     q: Optional[str] = Query(None),
     search_param: Optional[str] = Query(None, alias="search"),
     is_deleted: Optional[bool] = Query(False),
@@ -765,6 +768,8 @@ async def list_items(
     page: int = Query(1, ge=1),
     page_size: int = Query(100, ge=1, le=500),
 ) -> Any:
+    hospital_id = current.hospital_id
+
     cols = (
         PharmacyMedicine.id, PharmacyMedicine.product_id, PharmacyMedicine.batch_no,
         PharmacyMedicine.name, PharmacyMedicine.generic_name, PharmacyMedicine.type,
@@ -990,11 +995,10 @@ async def list_invoices(
     payment_method: _Optional[str] = Query(None, description="cash | card | insurance | online"),
     date_from: _Optional[str] = Query(None, description="YYYY-MM-DD"),
     date_to: _Optional[str] = Query(None, description="YYYY-MM-DD"),
-    hospital_id: _Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
 ):
-    h_id = hospital_id or getattr(current, "hospital_id", None)
+    h_id = getattr(current, "hospital_id", None)
     result = PharmacyInvoiceService.get_all_invoices(
         db=db,
         hospital_id=h_id,
@@ -1016,9 +1020,8 @@ async def list_invoices(
 async def list_invoice_trash(
     db: Session = Depends(get_db),
     current: TokenData = Depends(get_current_active_user),
-    hospital_id: _Optional[str] = Query(None),
 ):
-    h_id = hospital_id or getattr(current, "hospital_id", None)
+    h_id = getattr(current, "hospital_id", None)
     invoices = PharmacyInvoiceService.get_trash(db=db, hospital_id=h_id)
 
     if isinstance(invoices, dict) and "invoices" in invoices:
@@ -1219,12 +1222,11 @@ def _resolve_date_range(
 async def get_sales_overview(
     db: Session = Depends(get_db),
     current: TokenData = Depends(get_current_active_user),
-    hospital_id: Optional[str] = Query(None),
     preset: Optional[str] = Query("last_30_days", description="last_7_days | last_30_days | this_month | last_month"),
     from_date: Optional[str] = Query(None, description="ISO date e.g. 2026-04-01"),
     to_date: Optional[str] = Query(None, description="ISO date e.g. 2026-05-09"),
 ):
-    h_id = hospital_id or getattr(current, "hospital_id", None)
+    h_id = getattr(current, "hospital_id", None)
     start, end = _resolve_date_range(preset, from_date, to_date)
 
     sales = db.query(PharmacySale).filter(
@@ -1258,12 +1260,11 @@ async def get_sales_overview(
 async def get_sales_over_time(
     db: Session = Depends(get_db),
     current: TokenData = Depends(get_current_active_user),
-    hospital_id: Optional[str] = Query(None),
     preset: Optional[str] = Query("last_30_days"),
     from_date: Optional[str] = Query(None),
     to_date: Optional[str] = Query(None),
 ):
-    h_id = hospital_id or getattr(current, "hospital_id", None)
+    h_id = getattr(current, "hospital_id", None)
     start, end = _resolve_date_range(preset, from_date, to_date)
 
     rows = db.query(
@@ -1301,12 +1302,11 @@ async def get_sales_over_time(
 async def get_payment_method_breakdown(
     db: Session = Depends(get_db),
     current: TokenData = Depends(get_current_active_user),
-    hospital_id: Optional[str] = Query(None),
     preset: Optional[str] = Query("last_30_days"),
     from_date: Optional[str] = Query(None),
     to_date: Optional[str] = Query(None),
 ):
-    h_id = hospital_id or getattr(current, "hospital_id", None)
+    h_id = getattr(current, "hospital_id", None)
     start, end = _resolve_date_range(preset, from_date, to_date)
 
     sales = db.query(PharmacySale).filter(
@@ -1349,13 +1349,12 @@ async def get_payment_method_breakdown(
 async def get_top_selling_medicines(
     db: Session = Depends(get_db),
     current: TokenData = Depends(get_current_active_user),
-    hospital_id: Optional[str] = Query(None),
     preset: Optional[str] = Query("last_30_days"),
     from_date: Optional[str] = Query(None),
     to_date: Optional[str] = Query(None),
     limit: int = Query(10, ge=1, le=50),
 ):
-    h_id = hospital_id or getattr(current, "hospital_id", None)
+    h_id = getattr(current, "hospital_id", None)
     start, end = _resolve_date_range(preset, from_date, to_date)
 
     rows = db.query(
@@ -1415,7 +1414,6 @@ async def get_top_selling_medicines(
 async def export_sales_excel(
     db: Session = Depends(get_db),
     current: TokenData = Depends(get_current_active_user),
-    hospital_id: Optional[str] = Query(None),
     preset: Optional[str] = Query("last_30_days"),
     from_date: Optional[str] = Query(None),
     to_date: Optional[str] = Query(None),
@@ -1423,7 +1421,7 @@ async def export_sales_excel(
     import openpyxl
     from io import BytesIO
 
-    h_id = hospital_id or getattr(current, "hospital_id", None)
+    h_id = getattr(current, "hospital_id", None)
     start, end = _resolve_date_range(preset, from_date, to_date)
 
     sales = db.query(PharmacySale).filter(
