@@ -5,7 +5,7 @@ import io
 import uuid
 import asyncio
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status, Header
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -333,9 +333,20 @@ async def search_medicine(
 async def public_add_medicine(
     payload: AddMedicineRequest,
     db: Session = Depends(get_db),
-    #current: TokenData = Depends(get_current_active_user),
+    authorization: Optional[str] = Header(None),
 ) -> Dict[str, Any]:
+    # Prefer hospital_id from a logged-in user's JWT over whatever the body claims,
+    # so a logged-in pharmacy user can never write into another hospital's inventory.
     user_hospital = payload.hospital_id
+    if authorization:
+        try:
+            from app.security import verify_token
+            token = authorization.replace("Bearer ", "").strip()
+            token_payload = verify_token(token)
+            if token_payload and token_payload.get("hospital_id"):
+                user_hospital = str(token_payload.get("hospital_id")).strip()
+        except Exception:
+            pass
     
     # [FIX] Multi-tenant scoping and Native Upsert (ignores is_deleted to find ghosts)
     existing = db.query(PharmacyMedicine).filter(
@@ -574,8 +585,21 @@ async def get_all_medicines(
     hospital_id: Optional[str] = Query(None, description="Filter by hospital ID"),
     product_id: Optional[int] = Query(None),
     page: int = Query(1, ge=1),
-    page_size: int = Query(500, ge=1, le=5000),  
+    page_size: int = Query(500, ge=1, le=5000),
+    authorization: Optional[str] = Header(None),
 ) -> Dict[str, Any]:
+    # Silently derive hospital_id from a logged-in user's JWT if the
+    # frontend didn't pass it explicitly as a query param.
+    if not hospital_id and authorization:
+        try:
+            from app.security import verify_token
+            token = authorization.replace("Bearer ", "").strip()
+            payload = verify_token(token)
+            if payload:
+                hospital_id = str(payload.get("hospital_id") or "").strip() or None
+        except Exception:
+            pass
+
     cols = (
         PharmacyMedicine.id, PharmacyMedicine.product_id, PharmacyMedicine.batch_no,
         PharmacyMedicine.name, PharmacyMedicine.generic_name, PharmacyMedicine.type,
@@ -593,7 +617,7 @@ async def get_all_medicines(
         base = base.filter(
             or_(
                 PharmacyMedicine.hospital_id == hospital_id,
-                PharmacyMedicine.hospital_id.is_(None)  # also show medicines with null hospital_id
+                PharmacyMedicine.hospital_id.is_(None)
             )
         )
     
@@ -1477,7 +1501,20 @@ async def delete_medicine_public(
     medicine_id: str,
     hospital_id: Optional[str] = Query(None),
     db: Session = Depends(get_db),
+    authorization: Optional[str] = Header(None),
 ) -> Dict[str, Any]:
+    # Silently derive hospital_id from JWT if not explicitly passed, so a
+    # logged-in pharmacy user can't accidentally/intentionally delete another hospital's medicine.
+    if not hospital_id and authorization:
+        try:
+            from app.security import verify_token
+            token = authorization.replace("Bearer ", "").strip()
+            payload = verify_token(token)
+            if payload:
+                hospital_id = str(payload.get("hospital_id") or "").strip() or None
+        except Exception:
+            pass
+
     # Try by UUID first
     med = db.query(PharmacyMedicine).filter(
         PharmacyMedicine.id == medicine_id,
@@ -1506,6 +1543,9 @@ async def delete_medicine_public(
 
     if not med:
         raise HTTPException(status_code=404, detail="Medicine not found")
+
+    if hospital_id and med.hospital_id and med.hospital_id != hospital_id:
+        raise HTTPException(status_code=403, detail="Access denied: medicine belongs to a different hospital")
 
     med.is_deleted = True
     med.deleted_at = datetime.utcnow()

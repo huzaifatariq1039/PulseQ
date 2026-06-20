@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, status, Query, Depends
+from fastapi import APIRouter, HTTPException, status, Query, Depends, Header
 from typing import List, Optional, Dict, Any
 from app.models import DoctorCreate, DoctorResponse, DoctorSearchResponse, DoctorWithQueue, QueueStatus
 from app.database import get_db, get_db_session
@@ -612,10 +612,24 @@ async def list_doctors_public(
     subcategory: Optional[str] = Query(None),
     limit: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
+    authorization: Optional[str] = Header(None),
 ):
+    # Silently derive hospital_id from a logged-in user's JWT if the
+    # frontend didn't pass it explicitly as a query param.
+    if not hospital_id and authorization:
+        try:
+            from app.security import verify_token
+            token = authorization.replace("Bearer ", "").strip()
+            payload = verify_token(token)
+            if payload:
+                hospital_id = str(payload.get("hospital_id") or "").strip() or None
+        except Exception:
+            pass  # invalid/missing token — fall back to unscoped public behavior
+
     query = db.query(Doctor)
     if hospital_id:
         query = query.filter(Doctor.hospital_id == hospital_id)
+
     if specialization:
         spec_norm = f"%{specialization.strip()}%"
         query = query.filter(
@@ -652,12 +666,16 @@ async def list_doctors_public(
 
 @router.get("/")
 async def list_doctors_staff(
-    hospital_id: Optional[str] = Query(None),
     specialization: Optional[str] = Query(None),
     subcategory: Optional[str] = Query(None),
     limit: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
+    current_user=Depends(get_current_active_user),
 ):
+    # Force hospital_id to the logged-in staff member's own hospital — ignore any query param
+    hospital_id = getattr(current_user, "hospital_id", None)
+    if not hospital_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No hospital associated with this account")
     return await list_doctors_public(
         hospital_id=hospital_id,
         specialization=specialization,
