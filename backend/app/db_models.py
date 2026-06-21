@@ -164,8 +164,10 @@ class Token(Base):
     pending_skip_task_id = Column(String(255), nullable=True)
     skipped_at = Column(DateTime(timezone=True), nullable=True)
     idempotency_key = Column(String(255), nullable=True, index=True) # Added index for idempotency check
+    skip_count = Column(Integer, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True) # Added index for token history
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
 
     # Embedded snapshots
     doctor_name = Column(String(100), nullable=True)
