@@ -436,7 +436,7 @@ async def admin_dashboard(
     
     doctors = doc_query.all()
     active_doctors = len([d for d in doctors if str(d.status).lower() in ("available", "active")])
-    departments_count = db.query(func.count(func.distinct(Doctor.specialization))).scalar()
+    departments_count = len(set(d.specialization for d in doctors if d.specialization))
 
     tz_offset_minutes = 300 
     now_utc = datetime.utcnow()
