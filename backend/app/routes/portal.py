@@ -1017,43 +1017,66 @@ async def doctor_skip_token(
         )
     
     now = datetime.utcnow()
-    token.status = "skipped"
+    today = now.date()
+
+    # Find the next waiting token for this doctor (lowest token_number among waiting ones)
+    next_waiting = db.query(Token).filter(
+        Token.doctor_id == token.doctor_id,
+        Token.id != token.id,
+        Token.status.in_(["pending", "waiting", "confirmed"]),
+        func.date(Token.appointment_date) == today,
+    ).order_by(Token.token_number.asc()).first()
+
+    skip_count = (token.skip_count or 0) + 1
+    token.skip_count = skip_count
     token.skipped_at = now
     token.updated_at = now
-    
+
+    next_token_data = None
+
+    if next_waiting:
+        # Swap token_number / display_code between the skipped token and the next waiting one
+        token.token_number, next_waiting.token_number = next_waiting.token_number, token.token_number
+        token.display_code, next_waiting.display_code = next_waiting.display_code, token.display_code
+
+        # The promoted token (now holding the skipped token's old number) becomes current
+        next_waiting.status = "called"
+        next_waiting.called_at = now
+        next_waiting.updated_at = now
+
+    if skip_count >= 3:
+        # Pulled from active queue entirely — only visible to receptionist for manual re-add
+        token.status = "skipped"
+    else:
+        # Goes back into the normal waiting queue with its new (swapped) number
+        token.status = "pending"
+
     db.commit()
-    
+    db.refresh(token)
+    if next_waiting:
+        db.refresh(next_waiting)
+        next_token_data = {k: v for k, v in next_waiting.__dict__.items() if not k.startswith('_')}
+
     try:
         from app.services.message_scheduler import schedule_skip_messages
         await schedule_skip_messages(token_id)
         logger.info(f"Skip message scheduler triggered for token {token_id}")
     except Exception as e:
         logger.error(f"Failed to schedule skip messages for token {token_id}: {e}")
-    
-    today = now.date()
-    next_token_obj = db.query(Token).filter(
-        Token.doctor_id == token.doctor_id,
-        Token.status.in_(["pending", "waiting", "confirmed"]),
-        func.date(Token.appointment_date) == today,
-        Token.token_number > token.token_number
-    ).order_by(Token.token_number.asc()).first()
-    
-    next_token_data = None
-    if next_token_obj:
-        next_token_obj.status = "called"
-        next_token_obj.called_at = now
-        next_token_obj.updated_at = now
-        
-        db.commit()
-        next_token_data = {k: v for k, v in next_token_obj.__dict__.items() if not k.startswith('_')}
-    
+
     return ok(
         data={
             "token_id": token_id,
-            "status": "skipped",
+            "status": token.status,
+            "skip_count": skip_count,
+            "removed_from_queue": skip_count >= 3,
             "next_called_token": next_token_data
         },
-        message="Token skipped successfully"
+        message=(
+            f"Token skipped successfully ({skip_count}/3). Removed from active queue — receptionist must re-add."
+            if skip_count >= 3 else
+            f"Token skipped successfully ({skip_count}/3). Re-entered queue with new position."
+        )
     )
 
 
@@ -1085,25 +1108,30 @@ async def receptionist_update_token(
             )
         
         if str(token.status).lower() == "skipped" and new_status in ["waiting", "confirmed", "pending"]:
-            today = datetime.utcnow().date()
+            if (token.skip_count or 0) < 3:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Token has only been skipped {token.skip_count or 0} time(s). It must be skipped 3 times before it can be manually re-added."
+                )
 
-            # Find the next waiting token for this doctor (excluding the one being re-added),
-            # but NEVER swap with the token currently in_consultation/called.
-            next_waiting = db.query(Token).filter(
+            today = datetime.utcnow().date()
+            last_token = db.query(Token).filter(
                 Token.doctor_id == token.doctor_id,
                 Token.id != token.id,
-                Token.status.in_(["pending", "waiting", "confirmed"]),
                 func.date(Token.appointment_date) == today,
-            ).order_by(Token.token_number.asc()).first()
+            ).order_by(Token.token_number.desc()).first()
 
-            swapped_with = None
-            if next_waiting:
-                # Full swap of token_number and display_code
-                token.token_number, next_waiting.token_number = next_waiting.token_number, token.token_number
-                token.display_code, next_waiting.display_code = next_waiting.display_code, token.display_code
-                next_waiting.updated_at = datetime.utcnow()
-                swapped_with = next_waiting.id
+            new_number = (last_token.token_number + 1) if last_token else 1
 
+            doc = db.query(Doctor).filter(Doctor.id == token.doctor_id).first()
+            doc_initial = "T"
+            if doc and doc.name:
+                clean_name = doc.name[2:].replace(".", "").strip() if doc.name.lower().startswith("dr") else doc.name.strip()
+                doc_initial = clean_name[0].upper() if clean_name else "T"
+
+            token.token_number = new_number
+            token.display_code = f"{doc_initial}-{new_number:03d}"
+            token.skip_count = 0
             token.status = new_status
             token.updated_at = datetime.utcnow()
             db.commit()
@@ -1115,12 +1143,9 @@ async def receptionist_update_token(
                     "display_code": token.display_code,
                     "patient_name": token.patient_name,
                     "status": token.status,
-                    "previous_status": "skipped",
-                    "swapped_with_token_id": swapped_with
+                    "previous_status": "skipped"
                 },
-                message=f"Token re-added successfully with status: {new_status}" + (
-                    " (swapped position with next waiting token)" if swapped_with else ""
-                )
+                message=f"Token re-added successfully at end of queue with new number: {token.display_code}"
             )
         
         token.status = new_status
