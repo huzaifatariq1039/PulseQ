@@ -436,7 +436,11 @@ async def admin_dashboard(
     
     doctors = doc_query.all()
     active_doctors = len([d for d in doctors if str(d.status).lower() in ("available", "active")])
-    departments_count = len(set(d.specialization for d in doctors if d.specialization))
+
+    dept_query = db.query(func.count(Department.id))
+    if hospital_id:
+        dept_query = dept_query.filter(Department.hospital_id == hospital_id)
+    departments_count = dept_query.scalar() or 0
 
     tz_offset_minutes = 300 
     now_utc = datetime.utcnow()
@@ -1081,18 +1085,42 @@ async def receptionist_update_token(
             )
         
         if str(token.status).lower() == "skipped" and new_status in ["waiting", "confirmed", "pending"]:
+            today = datetime.utcnow().date()
+
+            # Find the next waiting token for this doctor (excluding the one being re-added),
+            # but NEVER swap with the token currently in_consultation/called.
+            next_waiting = db.query(Token).filter(
+                Token.doctor_id == token.doctor_id,
+                Token.id != token.id,
+                Token.status.in_(["pending", "waiting", "confirmed"]),
+                func.date(Token.appointment_date) == today,
+            ).order_by(Token.token_number.asc()).first()
+
+            swapped_with = None
+            if next_waiting:
+                # Full swap of token_number and display_code
+                token.token_number, next_waiting.token_number = next_waiting.token_number, token.token_number
+                token.display_code, next_waiting.display_code = next_waiting.display_code, token.display_code
+                next_waiting.updated_at = datetime.utcnow()
+                swapped_with = next_waiting.id
+
             token.status = new_status
             token.updated_at = datetime.utcnow()
             db.commit()
+            db.refresh(token)
+
             return ok(
                 data={
                     "token_id": token.id,
                     "display_code": token.display_code,
                     "patient_name": token.patient_name,
                     "status": token.status,
-                    "previous_status": "skipped"
+                    "previous_status": "skipped",
+                    "swapped_with_token_id": swapped_with
                 },
-                message=f"Token re-added successfully with status: {new_status}"
+                message=f"Token re-added successfully with status: {new_status}" + (
+                    " (swapped position with next waiting token)" if swapped_with else ""
+                )
             )
         
         token.status = new_status
