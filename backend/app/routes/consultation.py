@@ -316,22 +316,20 @@ async def consultation_skip_token(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_active_user)
 ) -> Dict[str, Any]:
-    """Skip a token from consultation or queue (doctor only)"""
+    """Skip a token — swaps with next patient, after 3 skips removes from queue."""
+    
     token = db.query(Token).filter(Token.id == token_id).first()
     if not token:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Token not found")
 
-    # Get role from current_user JWT token
+    # Verify doctor owns this token
     role = str(current_user.role or "").lower()
-    
-    # For doctor role, verify they're accessing their own consultations
     if role == "doctor":
         doctor_profile = db.query(Doctor).filter(Doctor.user_id == current_user.user_id).first()
         doctor_profile_id = doctor_profile.id if doctor_profile else None
-        
         if str(current_user.user_id) != str(token.doctor_id) and str(doctor_profile_id) != str(token.doctor_id):
             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, 
+                status_code=status.HTTP_403_FORBIDDEN,
                 detail="Access denied: You can only skip your own tokens"
             )
 
@@ -339,46 +337,185 @@ async def consultation_skip_token(
     st = str(token.status).lower()
     if st in ["completed", "cancelled", "skipped"]:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, 
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Token cannot be skipped. Current status: {st}"
         )
 
     now = datetime.utcnow()
-    token.status = "skipped"
-    token.skipped_at = now if hasattr(token, "skipped_at") else None
-    token.updated_at = now
-    
-    db.commit()
+    doctor_id = token.doctor_id
+    today = now.date()
+
+    # ✅ Track skip count
+    skip_count = getattr(token, "skip_count", 0) or 0
+    skip_count += 1
+
+    # ✅ Find next pending token
+    next_token = db.query(Token).filter(
+        Token.doctor_id == doctor_id,
+        Token.status.in_(["pending", "waiting", "confirmed", "called"]),
+        func.date(Token.appointment_date) == today,
+        Token.token_number > token.token_number
+    ).order_by(Token.token_number.asc()).first()
+
+    # ✅ After 3 skips — remove from queue permanently
+    if skip_count >= 3:
+        token.status = "skipped"
+        token.skipped_at = now
+        token.updated_at = now
+        if hasattr(token, "skip_count"):
+            token.skip_count = skip_count
+        db.commit()
+
+        logger.info(f"Token {token_id} permanently skipped after 3 attempts")
+
+        # Send skipped WhatsApp message
+        if token.patient_phone:
+            try:
+                await send_template_message(
+                    phone=token.patient_phone,
+                    template_name="skipped",
+                    params=[
+                        token.patient_name or "Patient",
+                        token.display_code or str(token.token_number)
+                    ]
+                )
+                logger.info(f"Skipped WhatsApp sent to {token.patient_phone}")
+            except Exception as e:
+                logger.error(f"Failed to send skipped message: {e}")
+
+        # Call next token
+        next_token_data = None
+        if next_token:
+            next_token.status = "called"
+            next_token.called_at = now
+            next_token.updated_at = now
+            db.commit()
+            next_token_data = {
+                k: v for k, v in next_token.__dict__.items()
+                if not k.startswith('_')
+            }
+
+        try:
+            log_action(current_user.user_id, role, action="SKIP_FINAL", token_id=token_id)
+        except Exception:
+            pass
+
+        return ok(
+            data={
+                "token_id": token_id,
+                "doctor_id": doctor_id,
+                "status": "skipped",
+                "skip_count": skip_count,
+                "permanently_removed": True,
+                "next_called_token": next_token_data,
+            },
+            message="Patient permanently removed from queue after 3 skips",
+        )
+
+    # ✅ Less than 3 skips — SWAP token numbers with next patient
+    if next_token:
+        # Swap token numbers
+        skipped_token_number = token.token_number
+        skipped_display_code = token.display_code
+
+        next_token_number = next_token.token_number
+        next_display_code = next_token.display_code
+
+        # ✅ Skipped patient gets next patient's number
+        token.token_number = next_token_number
+        token.display_code = next_display_code
+        token.status = "pending"  # back to pending — still in queue
+        token.updated_at = now
+        if hasattr(token, "skip_count"):
+            token.skip_count = skip_count
+
+        # ✅ Next patient gets skipped patient's number (moves up)
+        next_token.token_number = skipped_token_number
+        next_token.display_code = skipped_display_code
+        next_token.status = "called"  # immediately called
+        next_token.called_at = now
+        next_token.updated_at = now
+
+        db.commit()
+        db.refresh(token)
+        db.refresh(next_token)
+
+        logger.info(
+            f"Swapped tokens: {token.patient_name} "
+            f"({skipped_display_code} → {next_display_code}), "
+            f"{next_token.patient_name} "
+            f"({next_display_code} → {skipped_display_code})"
+        )
+
+        # ✅ Notify skipped patient they've been moved back
+        if token.patient_phone:
+            try:
+                await send_template_message(
+                    phone=token.patient_phone,
+                    template_name="queue_update_alert",
+                    params=[
+                        token.patient_name or "Patient",
+                        "1",  # now 1 patient ahead (the swapped patient)
+                        str(getattr(token, "estimated_wait_time", 5) or 5),
+                        token.hospital_name or "Hospital",
+                        token.display_code or str(token.token_number)
+                    ]
+                )
+            except Exception as e:
+                logger.error(f"Failed to send queue update to skipped patient: {e}")
+
+        next_token_data = {
+            k: v for k, v in next_token.__dict__.items()
+            if not k.startswith('_')
+        }
+
+    else:
+        # ✅ No next token — just skip permanently
+        token.status = "skipped"
+        token.skipped_at = now
+        token.updated_at = now
+        if hasattr(token, "skip_count"):
+            token.skip_count = skip_count
+        db.commit()
+
+        logger.info(f"Token {token_id} skipped — no next patient in queue")
+
+        # Send skipped WhatsApp message
+        if token.patient_phone:
+            try:
+                await send_template_message(
+                    phone=token.patient_phone,
+                    template_name="skipped",
+                    params=[
+                        token.patient_name or "Patient",
+                        token.display_code or str(token.token_number)
+                    ]
+                )
+            except Exception as e:
+                logger.error(f"Failed to send skipped message: {e}")
+
+        next_token_data = None
 
     try:
         log_action(current_user.user_id, role, action="SKIP", token_id=token_id)
     except Exception:
         pass
 
-    logger.info(f"Doctor {current_user.user_id} skipped token {token_id}")
-
-    # Auto-call next token logic
-    doctor_id = token.doctor_id
-    today = now.date()
-    next_token_obj = db.query(Token).filter(
-    Token.doctor_id == doctor_id,
-    Token.status.in_(["pending", "waiting", "confirmed"]),
-    func.date(Token.appointment_date) == today,
-    Token.token_number > token.token_number
-    ).order_by(Token.token_number.asc()).first()
-    
-    next_token_data = None 
-    if next_token_obj:
-       next_token_data = {k: v for k, v in next_token_obj.__dict__.items() if not k.startswith('_')}
-
     return ok(
         data={
             "token_id": token_id,
             "doctor_id": doctor_id,
-            "status": "skipped",
+            "status": token.status,
+            "skip_count": skip_count,
+            "permanently_removed": False,
+            "swapped_with": {
+                "token_id": next_token.id if next_token else None,
+                "patient_name": next_token.patient_name if next_token else None,
+                "display_code": next_token.display_code if next_token else None,
+            } if next_token else None,
             "next_called_token": next_token_data,
         },
-        message="Token skipped successfully",
+        message="Token swapped successfully",
     )
 
 @router.post("/re-add/{token_id}", dependencies=[Depends(require_roles("doctor", "admin"))])
