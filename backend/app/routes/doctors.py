@@ -1095,6 +1095,7 @@ async def delete_doctor(
 
         doctor_name = doctor.name
         doctor_specialization = doctor.specialization
+        doctor_user_id = doctor.user_id
         token_ids = [t[0] for t in db.query(Token.id).filter(Token.doctor_id == doctor_id).all()]
 
         refunds_deleted_count = 0
@@ -1106,6 +1107,14 @@ async def delete_doctor(
             db.flush()
 
         db.delete(doctor)
+        db.flush()
+
+        # Also clean up the linked user account, if one exists
+        if doctor_user_id:
+            from app.db_models import ActivityLog
+            db.query(ActivityLog).filter(ActivityLog.user_id == doctor_user_id).delete(synchronize_session=False)
+            db.query(User).filter(User.id == doctor_user_id).delete(synchronize_session=False)
+
         db.commit()
         logger.info(f"User {current_user.user_id} deleted doctor: {doctor_id} ({doctor_name}) - {tokens_deleted_count} tokens, {refunds_deleted_count} refunds deleted")
 
