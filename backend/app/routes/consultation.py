@@ -344,65 +344,92 @@ async def consultation_skip_token(
         )
 
     now = datetime.utcnow()
-    token.status = "skipped"
+    doctor_id = token.doctor_id
+    today = now.date()
+
+    # Find the next waiting token (lowest token_number, excluding current)
+    next_waiting = db.query(Token).filter(
+        Token.doctor_id == doctor_id,
+        Token.id != token.id,
+        Token.status.in_(["pending", "waiting", "confirmed"]),
+        func.date(Token.appointment_date) == today,
+    ).order_by(Token.token_number.asc()).first()
+
+    # Track how many times this token has been skipped
+    skip_count = (token.skip_count or 0) + 1
+    token.skip_count = skip_count
     token.skipped_at = now if hasattr(token, "skipped_at") else None
     token.updated_at = now
-    
+
+    next_token_data = None
+
+    if next_waiting:
+        # Full swap of token_number and display_code
+        token.token_number, next_waiting.token_number = next_waiting.token_number, token.token_number
+        token.display_code, next_waiting.display_code = next_waiting.display_code, token.display_code
+
+        # Promoted token immediately becomes called
+        next_waiting.status = "called"
+        next_waiting.called_at = now
+        next_waiting.updated_at = now
+
+    if skip_count >= 3:
+        # Pulled from active queue entirely — receptionist must re-add
+        token.status = "skipped"
+    else:
+        # Re-enters waiting queue with its new (swapped) number
+        token.status = "pending"
+
     db.commit()
+    db.refresh(token)
+    if next_waiting:
+        db.refresh(next_waiting)
+        next_token_data = {k: v for k, v in next_waiting.__dict__.items() if not k.startswith('_')}
 
     try:
         log_action(current_user.user_id, role, action="SKIP", token_id=token_id)
     except Exception:
         pass
 
-    logger.info(f"Doctor {current_user.user_id} skipped token {token_id}")
-
-    # Auto-call next token logic
-    doctor_id = token.doctor_id
-    today = now.date()
-    next_token_obj = db.query(Token).filter(
-    Token.doctor_id == doctor_id,
-    Token.status.in_(["pending", "waiting", "confirmed"]),
-    func.date(Token.appointment_date) == today,
-    Token.token_number > token.token_number
-    ).order_by(Token.token_number.asc()).first()
-    
-    next_token_data = None 
-    if next_token_obj:
-       next_token_data = {k: v for k, v in next_token_obj.__dict__.items() if not k.startswith('_')}
+    logger.info(f"Doctor {current_user.user_id} skipped token {token_id} (skip_count={skip_count})")
 
     return ok(
         data={
             "token_id": token_id,
             "doctor_id": doctor_id,
-            "status": "skipped",
+            "status": token.status,
+            "skip_count": skip_count,
+            "removed_from_queue": skip_count >= 3,
             "next_called_token": next_token_data,
         },
-        message="Token skipped successfully",
+        message=(
+            f"Token skipped ({skip_count}/3) — removed from active queue, receptionist must re-add."
+            if skip_count >= 3 else
+            f"Token skipped ({skip_count}/3) — re-entered queue with new position."
+        ),
     )
 
-@router.post("/re-add/{token_id}", dependencies=[Depends(require_roles("doctor", "admin"))])
+@router.post("/re-add/{token_id}", dependencies=[Depends(require_roles("receptionist", "admin"))])
 async def re_add_skipped_patient(
     token_id: str,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_active_user)
 ) -> Dict[str, Any]:
-    """Re-add a skipped patient back to the queue"""
+    """Re-add a skipped patient back to the queue.
+    Receptionist/admin only. Token gets a fresh number at end of queue.
+    """
     token = db.query(Token).filter(Token.id == token_id).first()
     if not token:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Token not found")
 
-    # For doctor role, verify they own this token
     role = str(current_user.role or "").lower()
-    if role == "doctor":
-        doctor_profile = db.query(Doctor).filter(Doctor.user_id == current_user.user_id).first()
-        doctor_profile_id = doctor_profile.id if doctor_profile else None
 
-        if str(current_user.user_id) != str(token.doctor_id) and str(doctor_profile_id) != str(token.doctor_id):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied: You can only re-add your own tokens"
-            )
+    # Receptionist can only re-add tokens from their own hospital
+    if role == "receptionist" and token.hospital_id != getattr(current_user, "hospital_id", None):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: token belongs to a different hospital"
+        )
 
     if token.status != "skipped":
         raise HTTPException(
@@ -411,12 +438,33 @@ async def re_add_skipped_patient(
         )
 
     now = datetime.utcnow()
+    today = now.date()
+
+    # Assign fresh number at end of today's queue for this doctor
+    last_token = db.query(Token).filter(
+        Token.doctor_id == token.doctor_id,
+        Token.id != token.id,
+        func.date(Token.appointment_date) == today,
+    ).order_by(Token.token_number.desc()).first()
+
+    new_number = (last_token.token_number + 1) if last_token else 1
+
+    # Rebuild display_code using same pattern as token creation
+    doctor = db.query(Doctor).filter(Doctor.id == token.doctor_id).first()
+    doc_initial = "T"
+    if doctor and doctor.name:
+        clean_name = doctor.name[2:].replace(".", "").strip() if doctor.name.lower().startswith("dr") else doctor.name.strip()
+        doc_initial = clean_name[0].upper() if clean_name else "T"
+
+    token.token_number = new_number
+    token.display_code = f"{doc_initial}-{new_number:03d}"
+    token.skip_count = 0  # Reset skip count
     token.status = "pending"
     token.updated_at = now
     db.commit()
     db.refresh(token)
 
-    logger.info(f"User {current_user.user_id} re-added skipped token {token_id}")
+    logger.info(f"User {current_user.user_id} re-added skipped token {token_id} as {token.display_code}")
 
     try:
         log_action(current_user.user_id, role, action="RE_ADD", token_id=token_id)
@@ -431,7 +479,7 @@ async def re_add_skipped_patient(
             "status": token.status,
             "previous_status": "skipped"
         },
-        message="Patient re-added to queue successfully"
+        message=f"Patient re-added to end of queue with new token number: {token.display_code}"
     )
 
 @router.get("/patient/{patient_id}/history", dependencies=[Depends(require_roles("doctor", "receptionist", "admin"))])

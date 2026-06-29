@@ -1118,12 +1118,47 @@ async def create_invoice(
                 performed_by=getattr(current, "user_id", None),
             )
             db.add(sale)
+
+            # Deduct quantity from pharmacy inventory
+            qty_sold = int(item.quantity or 1)
+            med = None
+
+            # Try matching by product_id first
+            if item.product_id:
+                med = db.query(PharmacyMedicine).filter(
+                    PharmacyMedicine.product_id == item.product_id,
+                    PharmacyMedicine.hospital_id == getattr(current, "hospital_id", None),
+                    PharmacyMedicine.is_deleted.isnot(True)
+                ).first()
+
+            # Fallback: match by name if product_id not found
+            if not med and item.product_name:
+                med = db.query(PharmacyMedicine).filter(
+                    PharmacyMedicine.name.ilike(item.product_name.strip()),
+                    PharmacyMedicine.hospital_id == getattr(current, "hospital_id", None),
+                    PharmacyMedicine.is_deleted.isnot(True)
+                ).first()
+
+            if med:
+                if med.quantity < qty_sold:
+                    logger.warning(
+                        f"Invoice {invoice.id}: insufficient stock for '{item.product_name}' "
+                        f"(available: {med.quantity}, requested: {qty_sold}). "
+                        f"Deducting to 0."
+                    )
+                med.quantity = max(0, (med.quantity or 0) - qty_sold)
+                med.updated_at = datetime.utcnow()
+            else:
+                logger.warning(
+                    f"Invoice {invoice.id}: medicine '{item.product_name}' "
+                    f"(product_id={item.product_id}) not found in inventory — "
+                    f"quantity not deducted."
+                )
+
         db.commit()
     except Exception as e:
-        logger.warning(f"Failed to record pharmacy sales for invoice {invoice.id}: {e}")
+        logger.warning(f"Failed to record pharmacy sales/inventory update for invoice {invoice.id}: {e}")
         db.rollback()
-
-    return ok(data=data, message="Invoice created successfully")
 
 
 # ── PUT /invoices/{invoice_id} ────────────────────────────────────────────────
