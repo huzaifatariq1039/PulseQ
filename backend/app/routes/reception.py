@@ -726,11 +726,6 @@ async def receptionist_update_token(
             )
         
         if str(token.status).lower() == "skipped" and new_status in ["waiting", "confirmed", "pending"]:
-            if (token.skip_count or 0) < 3:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Token has only been skipped {token.skip_count or 0} time(s). It must be skipped 3 times before it can be manually re-added."
-                )
 
             today = datetime.utcnow().date()
             last_token = db.query(Token).filter(
