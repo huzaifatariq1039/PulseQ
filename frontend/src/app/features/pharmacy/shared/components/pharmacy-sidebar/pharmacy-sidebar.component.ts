@@ -19,6 +19,9 @@ export class PharmacySidebarComponent {
     addPath = pharmacyPath('add');
     trashPath = pharmacyPath('trash');
     invoicesPath = pharmacyPath('invoices');
+    expensesPath = pharmacyPath('expenses');
+    creditsPath = pharmacyPath('credits');
+    distributorsPath = pharmacyPath('distributors');
 
     constructor(private router: Router, private authService: AuthService) { }
 

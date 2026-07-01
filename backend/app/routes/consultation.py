@@ -2,12 +2,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from typing import Any, Dict, Optional, List
 from datetime import datetime, timedelta
 import logging
+import uuid
 
 from app.security import get_current_active_user
 from app.database import get_db
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
-from app.db_models import User, Doctor, Hospital, Token, ActivityLog
+from app.db_models import User, Doctor, Hospital, Token, ActivityLog, PharmacyMedicine, Prescription
 from app.security import require_roles
 from app.utils.responses import ok
 from app.utils.audit import get_user_role, log_action
@@ -157,7 +158,17 @@ async def consultation_start(
     if dstatus in {"offline", "on_leave"} or queue_paused:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Doctor unavailable")
     if dstatus == "busy":
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Doctor busy")
+        # Only block if the doctor is genuinely mid-consultation with a DIFFERENT
+        # patient. A "busy" flag with no active in-consultation token is a stale
+        # state (e.g. a consultation that was never finished / browser closed) —
+        # recover from it instead of locking the doctor out permanently.
+        active = db.query(Token).filter(
+            Token.doctor_id == doctor_id,
+            func.lower(Token.status) == "in_consultation",
+            Token.id != token_id,
+        ).first()
+        if active:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Doctor busy")
 
     token = db.query(Token).filter(Token.id == token_id).first()
     if not token:
@@ -193,6 +204,43 @@ async def consultation_start(
         pass
 
     return ok(data={"token_id": token_id, "doctor_id": doctor_id, "status": "in_consultation"}, message="Consultation started")
+
+
+@router.get("/medicine-search", dependencies=[Depends(require_roles("doctor", "admin"))])
+async def medicine_search(
+    q: str = Query("", description="Medicine name or generic name to search"),
+    db: Session = Depends(get_db),
+    current: TokenData = Depends(get_current_active_user),
+) -> Dict[str, Any]:
+    """Live medicine suggestions for prescribing, scoped to the doctor's hospital.
+
+    Returns current pharmacy stock so the doctor sees in-stock / out-of-stock while
+    typing. Doctors may still prescribe items not returned here (handled client-side).
+    """
+    term = (q or "").strip()
+    if not term:
+        return ok(data=[])
+
+    like = f"%{term}%"
+    query = db.query(PharmacyMedicine).filter(PharmacyMedicine.is_deleted.isnot(True))
+    if current.hospital_id:
+        query = query.filter(PharmacyMedicine.hospital_id == current.hospital_id)
+    query = query.filter(
+        or_(PharmacyMedicine.name.ilike(like), PharmacyMedicine.generic_name.ilike(like))
+    )
+    rows = query.order_by(PharmacyMedicine.name).limit(15).all()
+
+    results = [
+        {
+            "name": r.name,
+            "generic_name": r.generic_name,
+            "quantity_available": int(r.quantity or 0),
+            "in_stock": int(r.quantity or 0) > 0,
+            "selling_price": float(r.selling_price or 0),
+        }
+        for r in rows
+    ]
+    return ok(data=results)
 
 
 @router.post("/end", dependencies=[Depends(require_roles("doctor", "admin", "patient"))])
@@ -275,7 +323,39 @@ async def consultation_end(
     
     doctor.status = "available"
     doctor.updated_at = now
-    
+
+    # Save prescribed medicines (if any) as a Prescription record for this token.
+    medicines = (payload or {}).get("medicines")
+    if isinstance(medicines, list) and medicines:
+        try:
+            cleaned: List[Dict[str, Any]] = []
+            for m in medicines:
+                if not isinstance(m, dict):
+                    continue
+                name = str(m.get("name") or "").strip()
+                if not name:
+                    continue
+                cleaned.append({
+                    "name": name,
+                    "generic_name": (m.get("generic_name") or None),
+                    "dosage": (str(m.get("dosage")).strip() or None) if m.get("dosage") else None,
+                    "instructions": (str(m.get("instructions")).strip() or None) if m.get("instructions") else None,
+                    "in_stock": bool(m.get("in_stock")),
+                    "quantity_available": m.get("quantity_available"),
+                })
+            if cleaned:
+                db.add(Prescription(
+                    id=str(uuid.uuid4()),
+                    token_id=token.id,
+                    doctor_id=doctor.id,
+                    patient_id=token.patient_id,
+                    hospital_id=token.hospital_id,
+                    medicines=cleaned,
+                    notes=consultation_notes,
+                ))
+        except Exception:
+            logger.exception("Failed to save prescription for token %s", token_id)
+
     db.commit()
 
     # Send WhatsApp thank you message after consultation completion
@@ -344,92 +424,65 @@ async def consultation_skip_token(
         )
 
     now = datetime.utcnow()
-    doctor_id = token.doctor_id
-    today = now.date()
-
-    # Find the next waiting token (lowest token_number, excluding current)
-    next_waiting = db.query(Token).filter(
-        Token.doctor_id == doctor_id,
-        Token.id != token.id,
-        Token.status.in_(["pending", "waiting", "confirmed"]),
-        func.date(Token.appointment_date) == today,
-    ).order_by(Token.token_number.asc()).first()
-
-    # Track how many times this token has been skipped
-    skip_count = (token.skip_count or 0) + 1
-    token.skip_count = skip_count
+    token.status = "skipped"
     token.skipped_at = now if hasattr(token, "skipped_at") else None
     token.updated_at = now
-
-    next_token_data = None
-
-    if next_waiting:
-        # Full swap of token_number and display_code
-        token.token_number, next_waiting.token_number = next_waiting.token_number, token.token_number
-        token.display_code, next_waiting.display_code = next_waiting.display_code, token.display_code
-
-        # Promoted token immediately becomes called
-        next_waiting.status = "called"
-        next_waiting.called_at = now
-        next_waiting.updated_at = now
-
-    if skip_count >= 3:
-        # Pulled from active queue entirely — receptionist must re-add
-        token.status = "skipped"
-    else:
-        # Re-enters waiting queue with its new (swapped) number
-        token.status = "pending"
-
+    
     db.commit()
-    db.refresh(token)
-    if next_waiting:
-        db.refresh(next_waiting)
-        next_token_data = {k: v for k, v in next_waiting.__dict__.items() if not k.startswith('_')}
 
     try:
         log_action(current_user.user_id, role, action="SKIP", token_id=token_id)
     except Exception:
         pass
 
-    logger.info(f"Doctor {current_user.user_id} skipped token {token_id} (skip_count={skip_count})")
+    logger.info(f"Doctor {current_user.user_id} skipped token {token_id}")
+
+    # Auto-call next token logic
+    doctor_id = token.doctor_id
+    today = now.date()
+    next_token_obj = db.query(Token).filter(
+    Token.doctor_id == doctor_id,
+    Token.status.in_(["pending", "waiting", "confirmed"]),
+    func.date(Token.appointment_date) == today,
+    Token.token_number > token.token_number
+    ).order_by(Token.token_number.asc()).first()
+    
+    next_token_data = None 
+    if next_token_obj:
+       next_token_data = {k: v for k, v in next_token_obj.__dict__.items() if not k.startswith('_')}
 
     return ok(
         data={
             "token_id": token_id,
             "doctor_id": doctor_id,
-            "status": token.status,
-            "skip_count": skip_count,
-            "removed_from_queue": skip_count >= 3,
+            "status": "skipped",
             "next_called_token": next_token_data,
         },
-        message=(
-            f"Token skipped ({skip_count}/3) — removed from active queue, receptionist must re-add."
-            if skip_count >= 3 else
-            f"Token skipped ({skip_count}/3) — re-entered queue with new position."
-        ),
+        message="Token skipped successfully",
     )
 
-@router.post("/re-add/{token_id}", dependencies=[Depends(require_roles("receptionist", "admin"))])
+@router.post("/re-add/{token_id}", dependencies=[Depends(require_roles("doctor", "admin"))])
 async def re_add_skipped_patient(
     token_id: str,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_active_user)
 ) -> Dict[str, Any]:
-    """Re-add a skipped patient back to the queue.
-    Receptionist/admin only. Token gets a fresh number at end of queue.
-    """
+    """Re-add a skipped patient back to the queue"""
     token = db.query(Token).filter(Token.id == token_id).first()
     if not token:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Token not found")
 
+    # For doctor role, verify they own this token
     role = str(current_user.role or "").lower()
+    if role == "doctor":
+        doctor_profile = db.query(Doctor).filter(Doctor.user_id == current_user.user_id).first()
+        doctor_profile_id = doctor_profile.id if doctor_profile else None
 
-    # Receptionist can only re-add tokens from their own hospital
-    if role == "receptionist" and token.hospital_id != getattr(current_user, "hospital_id", None):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied: token belongs to a different hospital"
-        )
+        if str(current_user.user_id) != str(token.doctor_id) and str(doctor_profile_id) != str(token.doctor_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: You can only re-add your own tokens"
+            )
 
     if token.status != "skipped":
         raise HTTPException(
@@ -438,33 +491,12 @@ async def re_add_skipped_patient(
         )
 
     now = datetime.utcnow()
-    today = now.date()
-
-    # Assign fresh number at end of today's queue for this doctor
-    last_token = db.query(Token).filter(
-        Token.doctor_id == token.doctor_id,
-        Token.id != token.id,
-        func.date(Token.appointment_date) == today,
-    ).order_by(Token.token_number.desc()).first()
-
-    new_number = (last_token.token_number + 1) if last_token else 1
-
-    # Rebuild display_code using same pattern as token creation
-    doctor = db.query(Doctor).filter(Doctor.id == token.doctor_id).first()
-    doc_initial = "T"
-    if doctor and doctor.name:
-        clean_name = doctor.name[2:].replace(".", "").strip() if doctor.name.lower().startswith("dr") else doctor.name.strip()
-        doc_initial = clean_name[0].upper() if clean_name else "T"
-
-    token.token_number = new_number
-    token.display_code = f"{doc_initial}-{new_number:03d}"
-    token.skip_count = 0  # Reset skip count
     token.status = "pending"
     token.updated_at = now
     db.commit()
     db.refresh(token)
 
-    logger.info(f"User {current_user.user_id} re-added skipped token {token_id} as {token.display_code}")
+    logger.info(f"User {current_user.user_id} re-added skipped token {token_id}")
 
     try:
         log_action(current_user.user_id, role, action="RE_ADD", token_id=token_id)
@@ -479,7 +511,7 @@ async def re_add_skipped_patient(
             "status": token.status,
             "previous_status": "skipped"
         },
-        message=f"Patient re-added to end of queue with new token number: {token.display_code}"
+        message="Patient re-added to queue successfully"
     )
 
 @router.get("/patient/{patient_id}/history", dependencies=[Depends(require_roles("doctor", "receptionist", "admin"))])
@@ -522,6 +554,13 @@ async def get_patient_consultation_history(
         d.id: d for d in db.query(Doctor).filter(Doctor.id.in_(doctor_ids)).all()
     }
 
+    # ✅ Batch fetch prescriptions for these consultations
+    token_ids = [t.id for t in tokens]
+    presc_map: Dict[str, List[Dict[str, Any]]] = {}
+    if token_ids:
+        for p in db.query(Prescription).filter(Prescription.token_id.in_(token_ids)).all():
+            presc_map.setdefault(p.token_id, []).extend(p.medicines or [])
+
     items = []
     for t in tokens:
         doctor_obj = doctors_map.get(t.doctor_id)
@@ -550,6 +589,7 @@ async def get_patient_consultation_history(
             "started_at": start,
             "completed_at": end,
             "duration_minutes": duration,
+            "medicines": presc_map.get(t.id, []),
         })
 
     return ok(

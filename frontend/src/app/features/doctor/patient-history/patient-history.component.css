@@ -556,3 +556,62 @@
         padding: 0.75rem;
     }
 }
+/* ── Prescribed medicines in history ── */
+.consultation-meds {
+    margin-top: 0.6rem;
+    padding-top: 0.6rem;
+    border-top: 1px dashed #e5e7eb;
+}
+
+.consultation-meds .notes-label {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #374151;
+    margin-bottom: 0.4rem;
+}
+
+.meds-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.med-chip {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    background: #f8fafc;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 0.4rem 0.6rem;
+}
+
+.med-chip-name { font-weight: 600; color: #111827; font-size: 0.83rem; }
+
+.med-chip-dose {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #2563eb;
+    background: #eff6ff;
+    padding: 0.1rem 0.45rem;
+    border-radius: 6px;
+}
+
+.med-chip-instr { font-size: 0.76rem; color: #6b7280; font-style: italic; }
+
+.med-chip-stock {
+    margin-left: auto;
+    font-size: 0.66rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: #16a34a;
+    background: #dcfce7;
+    padding: 0.1rem 0.45rem;
+    border-radius: 20px;
+}
+
+.med-chip-stock.out { color: #dc2626; background: #fee2e2; }

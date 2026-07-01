@@ -729,3 +729,163 @@
         font-size: 1.1rem;
     }
 }
+/* ─────────────────────────────────────────────────────────────────────────
+   PRESCRIPTION / MEDICINE ENTRY
+───────────────────────────────────────────────────────────────────────── */
+.prescription-section {
+    margin-top: 1rem;
+}
+
+.med-search-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    margin-top: 0.4rem;
+}
+
+.med-search-icon {
+    position: absolute;
+    left: 0.8rem;
+    color: #9ca3af;
+    font-size: 0.85rem;
+    pointer-events: none;
+}
+
+.med-search-spin {
+    position: absolute;
+    right: 0.8rem;
+    color: #2563eb;
+    font-size: 0.85rem;
+}
+
+.med-search-input {
+    width: 100%;
+    padding: 0.6rem 0.9rem 0.6rem 2.1rem;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    outline: none;
+    background: #fff;
+    color: #111827;
+}
+
+.med-search-input:focus {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.med-suggestions {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+    z-index: 30;
+    max-height: 260px;
+    overflow-y: auto;
+}
+
+.med-suggestion {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.55rem 0.85rem;
+    cursor: pointer;
+    border-bottom: 1px solid #f3f4f6;
+}
+
+.med-suggestion:last-child { border-bottom: none; }
+.med-suggestion:hover { background: #f9fafb; }
+.med-suggestion.add-custom { color: #2563eb; font-weight: 600; background: #f8fafc; }
+
+.med-name {
+    font-size: 0.85rem;
+    color: #111827;
+    display: flex;
+    flex-direction: column;
+}
+
+.med-name small { color: #9ca3af; font-weight: 400; font-size: 0.72rem; }
+
+.stock-badge {
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 0.15rem 0.5rem;
+    border-radius: 20px;
+    white-space: nowrap;
+}
+
+.stock-badge.in { background: #dcfce7; color: #16a34a; }
+.stock-badge.out { background: #fee2e2; color: #dc2626; }
+
+/* Added medicines list */
+.med-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: 0.7rem;
+}
+
+.med-item {
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 0.6rem 0.75rem;
+    background: #fbfcfe;
+}
+
+.med-item-head {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+
+.med-item-name {
+    flex: 1;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #111827;
+    display: flex;
+    flex-direction: column;
+}
+
+.med-item-name small { color: #9ca3af; font-weight: 400; font-size: 0.72rem; }
+
+.med-remove {
+    width: 26px;
+    height: 26px;
+    border: none;
+    background: #fee2e2;
+    color: #dc2626;
+    border-radius: 6px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.med-remove:hover { background: #fecaca; }
+
+.med-item-fields {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.med-field {
+    flex: 1;
+    padding: 0.45rem 0.65rem;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    outline: none;
+}
+
+.med-field:focus { border-color: #3b82f6; }
+
+@media (max-width: 640px) {
+    .med-item-fields { flex-direction: column; }
+}

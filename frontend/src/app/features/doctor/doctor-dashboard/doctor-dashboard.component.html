@@ -106,6 +106,76 @@
                             placeholder="Type clinical notes, diagnosis, or prescriptions here..."
                             class="notes-textarea"></textarea>
                     </div>
+
+                    <!-- PRESCRIPTION / MEDICINES -->
+                    <div class="prescription-section">
+                        <label class="notes-label">Prescription / Medicines</label>
+
+                        <div class="med-search-wrap">
+                            <i class="pi pi-search med-search-icon"></i>
+                            <input type="text" class="med-search-input" [(ngModel)]="medicineQuery"
+                                (ngModelChange)="onMedicineQueryChange()" (keyup.enter)="addCustomMedicine()"
+                                (focus)="medicineQuery && (showSuggestions = true)" (blur)="hideSuggestionsSoon()"
+                                placeholder="Type a medicine name (e.g. B...) to search pharmacy stock" />
+                            @if (searchingMeds) {
+                            <i class="pi pi-spin pi-spinner med-search-spin"></i>
+                            }
+
+                            @if (showSuggestions && medicineQuery) {
+                            <div class="med-suggestions">
+                                @for (m of medicineSuggestions; track m.name) {
+                                <div class="med-suggestion" (mousedown)="addMedicineFromSuggestion(m)">
+                                    <span class="med-name">{{ m.name }}
+                                        @if (m.generic_name) { <small>{{ m.generic_name }}</small> }
+                                    </span>
+                                    @if (m.in_stock) {
+                                    <span class="stock-badge in">In stock: {{ m.quantity_available }}</span>
+                                    } @else {
+                                    <span class="stock-badge out">Out of stock</span>
+                                    }
+                                </div>
+                                }
+
+                                <!-- Always allow adding what was typed (e.g. not stocked) -->
+                                @if (!searchingMeds) {
+                                <div class="med-suggestion add-custom" (mousedown)="addCustomMedicine()">
+                                    <span class="med-name"><i class="pi pi-plus"></i> Add "{{ medicineQuery }}"</span>
+                                    @if (!medicineSuggestions.length) {
+                                    <span class="stock-badge out">Not in pharmacy</span>
+                                    }
+                                </div>
+                                }
+                            </div>
+                            }
+                        </div>
+
+                        @if (prescribedMedicines.length) {
+                        <div class="med-list">
+                            @for (m of prescribedMedicines; track m.name; let i = $index) {
+                            <div class="med-item">
+                                <div class="med-item-head">
+                                    <span class="med-item-name">{{ m.name }}
+                                        @if (m.generic_name) { <small>{{ m.generic_name }}</small> }
+                                    </span>
+                                    @if (m.in_stock) {
+                                    <span class="stock-badge in">In stock: {{ m.quantity_available }}</span>
+                                    } @else {
+                                    <span class="stock-badge out">Out of stock</span>
+                                    }
+                                    <button type="button" class="med-remove" (click)="removeMedicine(i)"
+                                        title="Remove"><i class="pi pi-times"></i></button>
+                                </div>
+                                <div class="med-item-fields">
+                                    <input type="text" class="med-field" [(ngModel)]="m.dosage"
+                                        placeholder="Dosage (e.g. 1 + 0 + 1)" />
+                                    <input type="text" class="med-field" [(ngModel)]="m.instructions"
+                                        placeholder="Instructions (e.g. after meal, 5 days)" />
+                                </div>
+                            </div>
+                            }
+                        </div>
+                        }
+                    </div>
                     }
 
                     <div class="consultation-actions">

@@ -1,0 +1,437 @@
+<div class="layout">
+    <app-pharmacy-sidebar></app-pharmacy-sidebar>
+
+    <main class="main-content">
+        <p-toast></p-toast>
+        <p-confirmDialog></p-confirmDialog>
+
+        <!-- HEADER -->
+        <div class="page-header">
+            <div>
+                <h2>Credit Management</h2>
+                <p class="subtitle">Credit sales &amp; outstanding balances for known customers</p>
+            </div>
+            <div class="header-actions">
+                <button (click)="exportToExcel()" class="export-btn" [disabled]="isExporting">
+                    <i class="pi" [ngClass]="isExporting ? 'pi-spin pi-spinner' : 'pi-download'"></i>
+                    {{ isExporting ? 'Exporting...' : 'Export Excel' }}
+                </button>
+                <button (click)="openAdd()" class="add-btn">
+                    <i class="pi pi-plus"></i>
+                    New Credit
+                </button>
+            </div>
+        </div>
+
+        <!-- SUMMARY -->
+        <div class="summary-row">
+            <div class="summary-card">
+                <span class="summary-label">Total Credit</span>
+                <span class="summary-value">{{ totalCredit | currency:'PKR':'Rs ' }}</span>
+            </div>
+            <div class="summary-card paid">
+                <span class="summary-label">Total Paid</span>
+                <span class="summary-value">{{ totalPaid | currency:'PKR':'Rs ' }}</span>
+            </div>
+            <div class="summary-card balance">
+                <span class="summary-label">Total Balance</span>
+                <span class="summary-value">{{ totalBalance | currency:'PKR':'Rs ' }}</span>
+            </div>
+        </div>
+
+        <!-- VIEW TABS -->
+        <div class="tabs">
+            <button class="tab" [class.active]="view === 'records'" (click)="switchView('records')">
+                <i class="pi pi-list"></i> Credit Records
+            </button>
+            <button class="tab" [class.active]="view === 'customers'" (click)="switchView('customers')">
+                <i class="pi pi-users"></i> Customer Summary
+            </button>
+        </div>
+
+        <!-- ════════ RECORDS VIEW ════════ -->
+        <ng-container *ngIf="view === 'records'">
+            <div class="search-filter-row">
+                <span class="search-wrapper">
+                    <i class="pi pi-search"></i>
+                    <input type="text" placeholder="Search customer, item or contact" [(ngModel)]="searchText"
+                        (ngModelChange)="onSearchChange()" class="search-input" />
+                </span>
+                <input type="text" placeholder="Customer name" [(ngModel)]="customerFilter"
+                    (ngModelChange)="onSearchChange()" class="text-filter" />
+                <p-dropdown [options]="statusOptions" [(ngModel)]="statusFilter" optionLabel="label" optionValue="value"
+                    (onChange)="onFilterChange()" styleClass="sort-dropdown" [style]="{'min-width': '170px'}">
+                </p-dropdown>
+                <button class="clear-btn" (click)="clearFilters()">
+                    <i class="pi pi-filter-slash"></i> Clear
+                </button>
+            </div>
+
+            <div class="table-card">
+                <p-table [value]="credits" [responsiveLayout]="'scroll'" [paginator]="true" [rows]="10"
+                    [rowsPerPageOptions]="[10, 25, 50]" [loading]="isLoading" dataKey="id" styleClass="ledger-table">
+                    <ng-template pTemplate="header">
+                        <tr>
+                            <th>Sr #</th>
+                            <th>Date</th>
+                            <th>Customer</th>
+                            <th>Contact</th>
+                            <th>Item Name</th>
+                            <th class="num">Qty</th>
+                            <th class="num">Unit Price</th>
+                            <th class="num">Total</th>
+                            <th class="num">Paid</th>
+                            <th class="num">Balance</th>
+                            <th>Due Date</th>
+                            <th>Status</th>
+                            <th class="sticky-col-right">Actions</th>
+                        </tr>
+                    </ng-template>
+
+                    <ng-template pTemplate="body" let-row>
+                        <tr [class.overdue-row]="isOverdue(row)">
+                            <td>{{ row.serial_no }}</td>
+                            <td>{{ formatDate(row.purchase_date) }}</td>
+                            <td class="strong">{{ row.customer_name }}</td>
+                            <td>{{ row.contact_number || '-' }}</td>
+                            <td>{{ row.item_name }}</td>
+                            <td class="num">{{ row.quantity }}</td>
+                            <td class="num">{{ row.unit_price | currency:'PKR':'Rs ' }}</td>
+                            <td class="num">{{ row.total_amount | currency:'PKR':'Rs ' }}</td>
+                            <td class="num">{{ row.amount_paid | currency:'PKR':'Rs ' }}</td>
+                            <td class="num strong" [class.balance-due]="row.balance > 0">
+                                {{ row.balance | currency:'PKR':'Rs ' }}
+                            </td>
+                            <td>
+                                <span [class.overdue-text]="isOverdue(row)">{{ formatDate(row.due_date) }}</span>
+                                <span *ngIf="isOverdue(row)" class="overdue-tag">Overdue</span>
+                            </td>
+                            <td>
+                                <span class="badge" [ngClass]="statusBadgeClass(row.status)">
+                                    {{ statusLabel(row.status) }}
+                                </span>
+                            </td>
+                            <td class="sticky-col-right">
+                                <div class="actions-cell">
+                                    <button type="button" class="action-btn action-print" (click)="printBill(row)"
+                                        pTooltip="Print bill">
+                                        <i class="pi pi-print"></i>
+                                    </button>
+                                    <button type="button" class="action-btn action-pay" (click)="openPay(row)"
+                                        pTooltip="Record payment" [disabled]="row.status === 'cleared'">
+                                        <i class="pi pi-wallet"></i>
+                                    </button>
+                                    <button type="button" class="action-btn action-edit" (click)="openEdit(row)"
+                                        pTooltip="Edit">
+                                        <i class="pi pi-pencil"></i>
+                                    </button>
+                                    <button type="button" class="action-btn action-delete" (click)="delete(row)"
+                                        pTooltip="Delete">
+                                        <i class="pi pi-trash"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    </ng-template>
+
+                    <ng-template pTemplate="emptymessage">
+                        <tr>
+                            <td colspan="13">
+                                <div class="empty-state">
+                                    <i class="pi pi-inbox"></i>
+                                    <p>No credit records found</p>
+                                </div>
+                            </td>
+                        </tr>
+                    </ng-template>
+                </p-table>
+            </div>
+        </ng-container>
+
+        <!-- ════════ CUSTOMER SUMMARY VIEW ════════ -->
+        <ng-container *ngIf="view === 'customers'">
+            <div class="table-card">
+                <p-table [value]="customers" [responsiveLayout]="'scroll'" [paginator]="true" [rows]="10"
+                    [rowsPerPageOptions]="[10, 25, 50]" dataKey="customer_name" styleClass="ledger-table">
+                    <ng-template pTemplate="header">
+                        <tr>
+                            <th>Customer Name</th>
+                            <th>Contact</th>
+                            <th class="num">Entries</th>
+                            <th class="num">Total Credit</th>
+                            <th class="num">Total Paid</th>
+                            <th class="num">Total Balance</th>
+                        </tr>
+                    </ng-template>
+                    <ng-template pTemplate="body" let-c>
+                        <tr>
+                            <td class="strong">{{ c.customer_name }}</td>
+                            <td>{{ c.contact_number || '-' }}</td>
+                            <td class="num">{{ c.entries }}</td>
+                            <td class="num">{{ c.total_credit | currency:'PKR':'Rs ' }}</td>
+                            <td class="num">{{ c.total_paid | currency:'PKR':'Rs ' }}</td>
+                            <td class="num strong" [class.balance-due]="c.total_balance > 0">
+                                {{ c.total_balance | currency:'PKR':'Rs ' }}
+                            </td>
+                        </tr>
+                    </ng-template>
+                    <ng-template pTemplate="emptymessage">
+                        <tr>
+                            <td colspan="6">
+                                <div class="empty-state">
+                                    <i class="pi pi-users"></i>
+                                    <p>No customer credit data</p>
+                                </div>
+                            </td>
+                        </tr>
+                    </ng-template>
+                </p-table>
+            </div>
+        </ng-container>
+    </main>
+</div>
+
+<!-- ADD / EDIT DIALOG -->
+<p-dialog [(visible)]="dialogVisible" [modal]="true" [draggable]="false" [resizable]="false"
+    [style]="{ width: '640px' }" [header]="editingId ? 'Edit Credit Entry' : 'New Credit Entry'"
+    styleClass="ledger-dialog">
+    <div class="form-grid">
+        <div class="form-field">
+            <label>Date of Purchase</label>
+            <input type="date" [(ngModel)]="form.purchase_date" class="form-input" />
+        </div>
+        <div class="form-field">
+            <label>Due Date</label>
+            <input type="date" [(ngModel)]="form.due_date" class="form-input" />
+        </div>
+        <div class="form-field">
+            <label>Customer Name <span class="req">*</span></label>
+            <input type="text" [(ngModel)]="form.customer_name" placeholder="Customer name" class="form-input" />
+        </div>
+        <div class="form-field">
+            <label>Contact Number</label>
+            <input type="text" [(ngModel)]="form.contact_number" placeholder="03xx-xxxxxxx" class="form-input" />
+        </div>
+        <div class="form-field span-2">
+            <label>Medicine / Item Name <span class="req">*</span></label>
+            <input type="text" [(ngModel)]="form.item_name" placeholder="e.g. Panadol 500mg x 20" class="form-input" />
+        </div>
+        <div class="form-field">
+            <label>Quantity</label>
+            <input type="number" min="0" [(ngModel)]="form.quantity" class="form-input" />
+        </div>
+        <div class="form-field">
+            <label>Unit Price</label>
+            <input type="number" min="0" [(ngModel)]="form.unit_price" class="form-input" />
+        </div>
+        <div class="form-field">
+            <label>Total Amount</label>
+            <input type="text" [value]="(formTotal | currency:'PKR':'Rs ')" class="form-input readonly" readonly />
+        </div>
+        <div class="form-field" *ngIf="!editingId">
+            <label>Amount Paid (initial)</label>
+            <input type="number" min="0" [(ngModel)]="form.amount_paid" class="form-input" />
+        </div>
+        <div class="form-field" *ngIf="!editingId">
+            <label>Balance Remaining</label>
+            <input type="text" [value]="(formBalance | currency:'PKR':'Rs ')" class="form-input readonly" readonly />
+        </div>
+        <div class="form-field span-2">
+            <label>Notes</label>
+            <textarea [(ngModel)]="form.notes" rows="2" placeholder="Optional notes" class="form-input"></textarea>
+        </div>
+    </div>
+    <ng-template pTemplate="footer">
+        <button class="cancel-btn" (click)="dialogVisible = false">Cancel</button>
+        <button class="add-btn" (click)="save()" [disabled]="isSaving">
+            <i class="pi" [ngClass]="isSaving ? 'pi-spin pi-spinner' : 'pi-check'"></i>
+            {{ editingId ? 'Update' : 'Save' }}
+        </button>
+    </ng-template>
+</p-dialog>
+
+<!-- PAYMENT DIALOG -->
+<p-dialog [(visible)]="payDialogVisible" [modal]="true" [draggable]="false" [resizable]="false"
+    [style]="{ width: '560px' }" header="Record Payment" styleClass="ledger-dialog">
+    <div *ngIf="activeCredit" class="pay-body">
+        <div class="pay-summary">
+            <div>
+                <span class="pay-label">Customer</span>
+                <span class="pay-strong">{{ activeCredit.customer_name }}</span>
+            </div>
+            <div>
+                <span class="pay-label">Total</span>
+                <span>{{ activeCredit.total_amount | currency:'PKR':'Rs ' }}</span>
+            </div>
+            <div>
+                <span class="pay-label">Paid</span>
+                <span>{{ activeCredit.amount_paid | currency:'PKR':'Rs ' }}</span>
+            </div>
+            <div>
+                <span class="pay-label">Balance</span>
+                <span class="pay-strong balance-due">{{ activeCredit.balance | currency:'PKR':'Rs ' }}</span>
+            </div>
+        </div>
+
+        <div class="form-grid" *ngIf="activeCredit.balance > 0">
+            <div class="form-field">
+                <label>Amount</label>
+                <input type="number" min="0" [(ngModel)]="payAmount" class="form-input" />
+            </div>
+            <div class="form-field">
+                <label>Date</label>
+                <input type="date" [(ngModel)]="payDate" class="form-input" />
+            </div>
+            <div class="form-field">
+                <label>Method</label>
+                <p-dropdown [options]="payMethodOptions" [(ngModel)]="payMethod" optionLabel="label"
+                    optionValue="value" styleClass="full-dropdown" [style]="{ width: '100%' }"></p-dropdown>
+            </div>
+            <div class="form-field">
+                <label>Notes</label>
+                <input type="text" [(ngModel)]="payNotes" placeholder="Optional" class="form-input" />
+            </div>
+        </div>
+
+        <div *ngIf="activeCredit.balance <= 0" class="cleared-note">
+            <i class="pi pi-check-circle"></i> This credit is fully cleared.
+        </div>
+
+        <!-- PAYMENT HISTORY -->
+        <div class="history-block">
+            <h4>Payment History</h4>
+            <div *ngIf="activeCredit.payments?.length; else noHistory" class="history-list">
+                <div class="history-item" *ngFor="let p of activeCredit.payments">
+                    <div class="history-main">
+                        <span class="history-amount">{{ p.amount | currency:'PKR':'Rs ' }}</span>
+                        <span class="history-method">{{ p.payment_method || '-' }}</span>
+                    </div>
+                    <div class="history-meta">
+                        <span>{{ formatDate(p.payment_date) }}</span>
+                        <span *ngIf="p.notes" class="history-notes">{{ p.notes }}</span>
+                    </div>
+                </div>
+            </div>
+            <ng-template #noHistory>
+                <p class="history-empty">No payments recorded yet.</p>
+            </ng-template>
+        </div>
+    </div>
+
+    <ng-template pTemplate="footer">
+        <button class="cancel-btn" (click)="payDialogVisible = false">Close</button>
+        <button *ngIf="activeCredit" class="print-btn" (click)="printBill(activeCredit)">
+            <i class="pi pi-print"></i> Print Bill
+        </button>
+        <button class="add-btn" (click)="recordPayment()" [disabled]="isPaying || !activeCredit || activeCredit.balance <= 0">
+            <i class="pi" [ngClass]="isPaying ? 'pi-spin pi-spinner' : 'pi-wallet'"></i>
+            Record Payment
+        </button>
+    </ng-template>
+</p-dialog>
+
+<!-- ── HIDDEN PRINT AREA — off-screen; visible only when printing ── -->
+<div class="print-area-wrapper">
+    <div id="credit-print-area" *ngIf="printingCredit">
+        <!-- Header -->
+        <div class="bill-header">
+            <div class="bill-brand">
+                <i class="pi pi-shopping-cart"></i>
+                <div>
+                    <div class="bill-pharmacy">PulseQ Pharmacy</div>
+                    <div class="bill-tagline">Credit Bill / Receipt</div>
+                </div>
+            </div>
+            <div class="bill-meta">
+                <div class="bill-no">Bill #CR-{{ printingCredit.serial_no }}</div>
+                <div>Printed: {{ todayString() }}</div>
+            </div>
+        </div>
+
+        <!-- Customer & purchase -->
+        <div class="bill-info">
+            <div>
+                <span class="bill-label">Customer</span>
+                <span class="bill-value">{{ printingCredit.customer_name }}</span>
+            </div>
+            <div>
+                <span class="bill-label">Contact</span>
+                <span class="bill-value">{{ printingCredit.contact_number || '-' }}</span>
+            </div>
+            <div>
+                <span class="bill-label">Purchase Date</span>
+                <span class="bill-value">{{ formatDate(printingCredit.purchase_date) }}</span>
+            </div>
+            <div>
+                <span class="bill-label">Due Date</span>
+                <span class="bill-value">{{ formatDate(printingCredit.due_date) }}</span>
+            </div>
+        </div>
+
+        <!-- Item table -->
+        <table class="bill-table">
+            <thead>
+                <tr>
+                    <th>Item</th>
+                    <th class="r">Qty</th>
+                    <th class="r">Unit Price</th>
+                    <th class="r">Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>{{ printingCredit.item_name }}</td>
+                    <td class="r">{{ printingCredit.quantity }}</td>
+                    <td class="r">Rs {{ printingCredit.unit_price | number:'1.2-2' }}</td>
+                    <td class="r">Rs {{ printingCredit.total_amount | number:'1.2-2' }}</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <!-- Totals -->
+        <div class="bill-totals">
+            <div class="bill-total-row">
+                <span>Total Amount</span><span>Rs {{ printingCredit.total_amount | number:'1.2-2' }}</span>
+            </div>
+            <div class="bill-total-row">
+                <span>Amount Paid</span><span>Rs {{ printingCredit.amount_paid | number:'1.2-2' }}</span>
+            </div>
+            <div class="bill-total-row grand">
+                <span>Balance Remaining</span><span>Rs {{ printingCredit.balance | number:'1.2-2' }}</span>
+            </div>
+            <div class="bill-status">
+                Status: {{ statusLabel(printingCredit.status) }}
+            </div>
+        </div>
+
+        <!-- Payment history -->
+        <div class="bill-history" *ngIf="printingCredit.payments?.length">
+            <div class="bill-history-title">Payment History</div>
+            <table class="bill-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Method</th>
+                        <th class="r">Amount</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr *ngFor="let p of printingCredit.payments">
+                        <td>{{ formatDate(p.payment_date) }}</td>
+                        <td>{{ p.payment_method || '-' }}</td>
+                        <td class="r">Rs {{ p.amount | number:'1.2-2' }}</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="bill-notes" *ngIf="printingCredit.notes">
+            <span class="bill-label">Notes:</span> {{ printingCredit.notes }}
+        </div>
+
+        <div class="bill-footer">
+            <span>Thank you for your business.</span>
+            <span>This is a computer-generated bill.</span>
+        </div>
+    </div>
+</div>

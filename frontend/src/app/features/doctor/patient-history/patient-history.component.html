@@ -88,6 +88,19 @@
                             <div class="no-notes" *ngIf="!consultation.notes">
                                 <i class="pi pi-file"></i> No notes recorded
                             </div>
+
+                            <div class="consultation-meds" *ngIf="consultation.medicines?.length">
+                                <div class="notes-label"><i class="pi pi-tablet"></i> Prescribed Medicines:</div>
+                                <div class="meds-list">
+                                    <div class="med-chip" *ngFor="let m of consultation.medicines">
+                                        <span class="med-chip-name">{{ m.name }}</span>
+                                        <span class="med-chip-dose" *ngIf="m.dosage">{{ m.dosage }}</span>
+                                        <span class="med-chip-instr" *ngIf="m.instructions">{{ m.instructions }}</span>
+                                        <span class="med-chip-stock"
+                                            [class.out]="m.in_stock === false">{{ m.in_stock === false ? 'out of stock' : 'in stock' }}</span>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>

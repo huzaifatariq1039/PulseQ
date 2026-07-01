@@ -1,7 +1,7 @@
 import { Component, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { Router, ActivatedRoute } from '@angular/router';
 
 import { CardModule } from 'primeng/card';
 import { ButtonModule } from 'primeng/button';
@@ -119,6 +119,7 @@ export class ReceptionDashboardComponent implements OnInit, OnDestroy {
 
   constructor(
     private router: Router,
+    private route: ActivatedRoute,
     private messageService: MessageService,
     private queueService: QueueService,
     private consultationService: ConsultationService,
@@ -726,13 +727,13 @@ export class ReceptionDashboardComponent implements OnInit, OnDestroy {
     return !isNaN(n) && Number.isInteger(n) && n > 0 && n <= 150;
   }
 
-  // ── FIXED: flat routes, no staff/reception prefix ──
+  // Navigate relative to the current reception route so it works whether the
+  // portal is mounted at /staff/reception (localhost/main) or at the domain root
+  // (reception subdomain). Absolute '/queue' fails to match on localhost (NG04002).
   navigateTo(page: 'dashboard' | 'queue' | 'manage-doctors'): void {
     this.currentNav = page;
     this.sidebarOpen = false;
-    if (page === 'dashboard') this.router.navigate(['/dashboard']);
-    else if (page === 'queue') this.router.navigate(['/queue']);
-    else if (page === 'manage-doctors') this.router.navigate(['/manage-doctors']);
+    this.router.navigate([`../${page}`], { relativeTo: this.route });
   }
 
   toggleSidebar(): void { this.sidebarOpen = !this.sidebarOpen; }

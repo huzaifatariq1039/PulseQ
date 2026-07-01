@@ -1,5 +1,5 @@
 import { Injectable, DestroyRef, inject } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { BehaviorSubject, Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { environment } from '../../../environments/environment';
@@ -43,6 +43,12 @@ export class ConsultationService {
 
   endConsultationApi(payload: any): Observable<any> {
     return this.http.post(`${this.API}/end`, payload);
+  }
+
+  /** Live medicine suggestions (from pharmacy stock) for prescribing. */
+  searchMedicines(q: string): Observable<any> {
+    const params = new HttpParams().set('q', q);
+    return this.http.get(`${this.API}/medicine-search`, { params });
   }
 
   /**

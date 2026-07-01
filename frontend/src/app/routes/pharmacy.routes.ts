@@ -66,6 +66,27 @@ export const pharmacyRoutes: Routes = [
         canActivate: [authGuard]
     },
     {
+        path: 'expenses',
+        loadComponent: () =>
+            import('../features/pharmacy/expense/expense.component')
+                .then(m => m.ExpenseComponent),
+        canActivate: [authGuard]
+    },
+    {
+        path: 'credits',
+        loadComponent: () =>
+            import('../features/pharmacy/credit/credit.component')
+                .then(m => m.CreditComponent),
+        canActivate: [authGuard]
+    },
+    {
+        path: 'distributors',
+        loadComponent: () =>
+            import('../features/pharmacy/distributors/distributors.component')
+                .then(m => m.DistributorsComponent),
+        canActivate: [authGuard]
+    },
+    {
         path: 'invoices/create',
         loadComponent: () =>
             import('../features/pharmacy/invoices/create-invoice/create-invoice.component')

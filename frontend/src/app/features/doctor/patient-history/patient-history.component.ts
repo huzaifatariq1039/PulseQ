@@ -118,14 +118,15 @@ export class PatientHistoryComponent implements OnInit {
 
           const mapped = consultations.map((c: any) => ({
             tokenNumber: c.token_number || c.id || '#N/A',
-            startTime: c.consultation_start_time || c.start_time || c.created_at,
-            endTime: c.consultation_end_time || c.end_time || c.updated_at,
-            reason: c.visit_reason || c.reason || '',
+            startTime: c.started_at || c.consultation_start_time || c.start_time || c.appointment_date || c.created_at,
+            endTime: c.completed_at || c.consultation_end_time || c.end_time || c.updated_at,
+            reason: c.reason_for_visit || c.visit_reason || c.reason || '',
             doctorName: c.doctor_name || c.doctorName || 'Dr.',
             phone: patient?.phone || c.patient_phone || '',
             notes: c.consultation_notes || c.notes || c.special_instructions || '',
+            medicines: c.medicines || [],
             patientName,
-            duration: c.duration
+            duration: c.duration_minutes ?? c.duration
           })).sort((a: any, b: any) =>
             this.parseDate(b.startTime).getTime() - this.parseDate(a.startTime).getTime()
           );
@@ -172,6 +173,7 @@ export class PatientHistoryComponent implements OnInit {
               doctorName: t.doctor_name || 'Dr.',
               phone: t.patient_phone || '',
               notes: t.consultation_notes || t.notes || t.special_instructions || '',
+              medicines: t.medicines || [],
               patientName: t.patient_name || 'Unknown',
               duration: t.duration
             });

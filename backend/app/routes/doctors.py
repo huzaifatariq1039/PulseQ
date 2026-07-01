@@ -437,15 +437,27 @@ async def create_doctor(
     if not doctor.hospital_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No hospital associated with this account")
 
-    existing_doctor = db.query(Doctor).filter(
-        Doctor.email == doctor.email, Doctor.hospital_id == doctor.hospital_id
-    ).first()
+    # Check email uniqueness across ALL doctors (not just same hospital)
+    if doctor.email:
+        existing_doctor_email = db.query(Doctor).filter(
+            Doctor.email == doctor.email
+        ).first()
+        if existing_doctor_email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"A doctor with email {doctor.email} already exists. Use a different email.",
+            )
 
-    if existing_doctor:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Doctor with this email already exists in this hospital",
-        )
+    # Check phone uniqueness across ALL doctors
+    if doctor.phone:
+        existing_doctor_phone = db.query(Doctor).filter(
+            Doctor.phone == doctor.phone
+        ).first()
+        if existing_doctor_phone:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"A doctor with phone {doctor.phone} already exists. Use a different phone number.",
+            )
 
     import uuid
     doctor_data = doctor.dict(exclude_none=True)

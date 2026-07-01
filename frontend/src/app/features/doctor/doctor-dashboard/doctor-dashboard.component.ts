@@ -11,7 +11,18 @@ import { MessageService } from 'primeng/api';
 import { ConsultationService } from '../../../core/services/consultation.service';
 import { QueueService } from '../../../core/services/queue.service';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Subject } from 'rxjs';
+import { debounceTime, distinctUntilChanged, switchMap } from 'rxjs/operators';
 import { DoctorSidebarComponent } from '../shared/components/doctor-sidebar/doctor-sidebar.component';
+
+interface PrescribedMedicine {
+  name: string;
+  generic_name?: string;
+  dosage?: string;
+  instructions?: string;
+  in_stock: boolean;
+  quantity_available?: number;
+}
 import { StaffPortalService } from '../../../core/services/staff-portal.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { NotificationService } from '../../../core/services/notification.service';
@@ -79,6 +90,14 @@ export class DoctorDashboardComponent implements OnInit {
   consultationNotes = '';
   consultationStartTime: Date | null = null;
   isConsultationActive = false;
+
+  // Prescription / medicine entry
+  medicineQuery = '';
+  medicineSuggestions: any[] = [];
+  showSuggestions = false;
+  searchingMeds = false;
+  prescribedMedicines: PrescribedMedicine[] = [];
+  private medSearch$ = new Subject<string>();
 
   upcomingPatients: UpcomingPatient[] = [];
   skippedPatients: UpcomingPatient[] = [];
@@ -207,7 +226,8 @@ export class DoctorDashboardComponent implements OnInit {
     const payload = {
       token_id: tokenId,
       doctor_id: this.doctorId,
-      consultation_notes: this.consultationNotes
+      consultation_notes: this.consultationNotes,
+      medicines: this.prescribedMedicines
     };
 
     console.log('END consultation payload:', payload);
@@ -324,6 +344,8 @@ export class DoctorDashboardComponent implements OnInit {
     this.consultationStartTime = null;
     this.isConsultationActive = false;
     this.currentPatient = null;
+    this.prescribedMedicines = [];
+    this.clearMedicineSearch();
   }
 
   // =========================
@@ -331,6 +353,105 @@ export class DoctorDashboardComponent implements OnInit {
   // =========================
   ngOnInit(): void {
     this.fetchDashboard();
+
+    // Debounced medicine search → live suggestions from pharmacy stock
+    this.medSearch$
+      .pipe(
+        debounceTime(250),
+        distinctUntilChanged(),
+        switchMap(q => {
+          this.searchingMeds = true;
+          this.cdr.markForCheck();
+          return this.consultationService.searchMedicines(q);
+        }),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe({
+        next: (res: any) => {
+          this.medicineSuggestions = Array.isArray(res?.data) ? res.data : [];
+          this.showSuggestions = true;
+          this.searchingMeds = false;
+          this.cdr.markForCheck();
+        },
+        error: () => {
+          this.medicineSuggestions = [];
+          this.searchingMeds = false;
+          this.cdr.markForCheck();
+        }
+      });
+  }
+
+  // =========================
+  // PRESCRIPTION / MEDICINES
+  // =========================
+  onMedicineQueryChange(): void {
+    const q = this.medicineQuery.trim();
+    if (!q) {
+      this.medicineSuggestions = [];
+      this.showSuggestions = false;
+      this.cdr.markForCheck();
+      return;
+    }
+    this.medSearch$.next(q);
+  }
+
+  addMedicineFromSuggestion(m: any): void {
+    this.addMedicine({
+      name: m.name,
+      generic_name: m.generic_name,
+      in_stock: !!m.in_stock,
+      quantity_available: m.quantity_available,
+      dosage: '',
+      instructions: ''
+    });
+    this.clearMedicineSearch();
+  }
+
+  // Add whatever the doctor typed, even if not in pharmacy stock (out of stock).
+  addCustomMedicine(): void {
+    const name = this.medicineQuery.trim();
+    if (!name) return;
+    // If it exactly matches a suggestion, prefer that (keeps stock info).
+    const match = this.medicineSuggestions.find(
+      s => (s.name || '').toLowerCase() === name.toLowerCase()
+    );
+    if (match) {
+      this.addMedicineFromSuggestion(match);
+      return;
+    }
+    this.addMedicine({
+      name, generic_name: '', in_stock: false, quantity_available: 0,
+      dosage: '', instructions: ''
+    });
+    this.clearMedicineSearch();
+  }
+
+  private addMedicine(m: PrescribedMedicine): void {
+    const exists = this.prescribedMedicines.some(
+      x => x.name.toLowerCase() === m.name.toLowerCase()
+    );
+    if (!exists) this.prescribedMedicines.push(m);
+    this.cdr.markForCheck();
+  }
+
+  removeMedicine(index: number): void {
+    this.prescribedMedicines.splice(index, 1);
+    this.cdr.markForCheck();
+  }
+
+  private clearMedicineSearch(): void {
+    this.medicineQuery = '';
+    this.medicineSuggestions = [];
+    this.showSuggestions = false;
+    this.cdr.markForCheck();
+  }
+
+  hideSuggestionsSoon(): void {
+    // Delay so a suggestion click registers before the list hides.
+    setTimeout(() => {
+      this.showSuggestions = false;
+      this.cdr.markForCheck();
+    }, 200);
   }
 
   // =========================
@@ -488,7 +609,12 @@ export class DoctorDashboardComponent implements OnInit {
   }
 
   viewPreviousHistory(): void {
-    this.router.navigate(['../history'], { relativeTo: this.route });
+    // Scope history to THIS patient only (not all of the doctor's patients).
+    const patientId = this.currentPatient?.patientId;
+    this.router.navigate(['../history'], {
+      relativeTo: this.route,
+      queryParams: patientId ? { patientId } : {}
+    });
   }
 
   private ensureRealtimeConnection(): void {
