@@ -1125,49 +1125,6 @@ async def doctor_skip_token(
     except Exception as e:
         logger.error(f"Failed to schedule skip messages for token {token_id}: {e}")
 
-    # If the skip actually changed the patient's token number, notify them so they
-    # know they've been shifted back in the queue.
-    new_token_number = token.token_number
-    if patient_phone and new_token_number != old_token_number:
-        try:
-            ahead = db.query(func.count(Token.id)).filter(
-                Token.doctor_id == token.doctor_id,
-                func.date(Token.appointment_date) == today,
-                Token.status.in_(["pending", "waiting", "confirmed", "called", "in_consultation"]),
-                Token.token_number < new_token_number,
-            ).scalar() or 0
-            wait_minutes = int(ahead) * 5
-            from app.services.whatsapp_service import send_template_message
-            await send_template_message(
-                phone=patient_phone,
-                template_name="user_unavailability",
-                params=[
-                    patient_name or "Patient",
-                    str(old_token_number if old_token_number is not None else ""),
-                    str(new_token_number if new_token_number is not None else ""),
-                    f"{wait_minutes} min",
-                ],
-            )
-            logger.info(f"Token-change WhatsApp sent for token {token_id}: {old_token_number} -> {new_token_number}")
-        except Exception as e:
-            logger.error(f"Failed to send token-change WhatsApp for token {token_id}: {e}")
-
-    # Real-time sync: tell the doctor + reception boards the queue changed.
-    try:
-        from app.routes.realtime import notify_queue_update
-        await notify_queue_update(token.hospital_id, token.doctor_id)
-    except Exception:
-        pass
-
-    if moved == "skipped":
-        msg = f"Skipped {skip_count} times — moved to the Skipped list. Only the doctor can re-add."
-    elif moved == "end":
-        msg = f"Skipped {skip_count} times — moved to the end of the queue."
-    elif moved == "down":
-        msg = f"Token skipped ({skip_count}/3) — moved down one spot."
-    else:
-        msg = "Token skipped — no other patients are waiting."
-
     return ok(
         data={
             "token_id": token_id,

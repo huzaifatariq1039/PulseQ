@@ -329,30 +329,7 @@ async def consultation_end(
     
     doctor.status = "available"
     doctor.updated_at = now
-
-    # Clean prescribed medicines (if any) so we can persist them below.
-    medicines = (payload or {}).get("medicines")
-    cleaned: List[Dict[str, Any]] = []
-    if isinstance(medicines, list) and medicines:
-        for m in medicines:
-            if not isinstance(m, dict):
-                continue
-            name = str(m.get("name") or "").strip()
-            if not name:
-                continue
-            cleaned.append({
-                "name": name,
-                "generic_name": (m.get("generic_name") or None),
-                "dosage": (str(m.get("dosage")).strip() or None) if m.get("dosage") else None,
-                "instructions": (str(m.get("instructions")).strip() or None) if m.get("instructions") else None,
-                "in_stock": bool(m.get("in_stock")),
-                "quantity_available": m.get("quantity_available"),
-            })
-
-    # Commit the core consultation completion first. This MUST succeed on its own,
-    # independent of whether the prescription can be saved — otherwise a problem
-    # with the prescriptions table (e.g. a pending DB migration) would roll back
-    # the whole visit and surface as a "fetch error" on the doctor's screen.
+    
     db.commit()
 
     # Persist the prescription in a separate transaction so any failure here is
@@ -512,23 +489,6 @@ async def re_add_skipped_patient(
         )
 
     now = datetime.utcnow()
-    today = now.date()
-
-    # Re-add the patient at the END of the current active queue (a new number
-    # after everyone still waiting), keeping their ticket's letter prefix.
-    max_num = db.query(func.max(Token.token_number)).filter(
-        Token.doctor_id == token.doctor_id,
-        Token.id != token.id,
-        func.date(Token.appointment_date) == today,
-        Token.status.in_(["pending", "waiting", "confirmed", "called", "in_consultation"]),
-    ).scalar() or 0
-    new_num = int(max_num) + 1
-    prefix = "".join(ch for ch in (token.display_code or "A000") if not ch.isdigit()) or "A"
-
-    old_token_number = token.token_number
-
-    token.token_number = new_num
-    token.display_code = f"{prefix}{new_num:03d}"
     token.status = "pending"
     token.skip_count = 0  # fresh start: re-added patient gets the full skip cycle again
     token.updated_at = now
@@ -541,37 +501,6 @@ async def re_add_skipped_patient(
         log_action(current_user.user_id, role, action="RE_ADD", token_id=token_id)
     except Exception:
         pass
-
-    try:
-        from app.routes.realtime import notify_queue_update
-        await notify_queue_update(token.hospital_id, token.doctor_id)
-    except Exception:
-        pass
-
-    # Notify the patient that their token number changed (re-added further back).
-    if token.patient_phone and new_num != old_token_number:
-        try:
-            ahead = db.query(func.count(Token.id)).filter(
-                Token.doctor_id == token.doctor_id,
-                func.date(Token.appointment_date) == today,
-                Token.status.in_(["pending", "waiting", "confirmed", "called", "in_consultation"]),
-                Token.token_number < new_num,
-            ).scalar() or 0
-            wait_minutes = int(ahead) * 5
-            from app.services.whatsapp_service import send_template_message
-            await send_template_message(
-                phone=token.patient_phone,
-                template_name="user_unavailability",
-                params=[
-                    token.patient_name or "Patient",
-                    str(old_token_number if old_token_number is not None else ""),
-                    str(new_num),
-                    f"{wait_minutes} min",
-                ],
-            )
-            logger.info(f"Token-change WhatsApp sent for re-added token {token_id}: {old_token_number} -> {new_num}")
-        except Exception as e:
-            logger.error(f"Failed to send token-change WhatsApp for token {token_id}: {e}")
 
     return ok(
         data={

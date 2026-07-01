@@ -182,6 +182,20 @@ class RealTimeConnectionManager:
             logger.debug(f"Local broadcast to {room} failed: {e}")
         await self.broadcast_via_redis(room, message)
 
+    async def broadcast(self, room: str, message: dict) -> None:
+        """Deliver a message to a room's clients.
+
+        Sends directly to locally-connected clients (works even without Redis,
+        e.g. in local dev) AND publishes to Redis so other server instances relay
+        it to their own clients. Clients treat these as idempotent refresh signals,
+        so an occasional duplicate on the same instance is harmless.
+        """
+        try:
+            await self._send_to_local_connections(room, message)
+        except Exception as e:
+            logger.debug(f"Local broadcast to {room} failed: {e}")
+        await self.broadcast_via_redis(room, message)
+
     async def _send_to_local_connections(self, room: str, message: dict) -> None:
         """Send a message to all local WebSocket connections in a room."""
         conns = list(self.active_connections.get(room, []))
