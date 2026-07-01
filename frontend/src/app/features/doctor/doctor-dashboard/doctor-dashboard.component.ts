@@ -102,6 +102,7 @@ export class DoctorDashboardComponent implements OnInit {
   upcomingPatients: UpcomingPatient[] = [];
   skippedPatients: UpcomingPatient[] = [];
   private realtimeRoom: string | null = null;
+  private realtimeHospitalRoom: string | null = null;
 
   private route = inject(ActivatedRoute);
   private router = inject(Router);
@@ -637,5 +638,21 @@ export class DoctorDashboardComponent implements OnInit {
 
         this.fetchDashboard();
       });
+
+    // Also join the hospital room so reception-side queue changes (skip, edit,
+    // walk-in, delete) sync onto the doctor dashboard in real time.
+    const hospitalId = (this.authService.getCurrentUser() as any)?.hospitalId || '';
+    const hospitalRoom = hospitalId ? `hospital_${hospitalId}` : '';
+    if (hospitalRoom && this.realtimeHospitalRoom !== hospitalRoom) {
+      this.realtimeHospitalRoom = hospitalRoom;
+      this.realtimeService.connect(hospitalRoom)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe(message => {
+          if (message?.type === 'ack') {
+            return;
+          }
+          this.fetchDashboard();
+        });
+    }
   }
 }

@@ -203,6 +203,12 @@ async def consultation_start(
     except Exception:
         pass
 
+    try:
+        from app.routes.realtime import notify_queue_update
+        await notify_queue_update(token.hospital_id, token.doctor_id)
+    except Exception:
+        pass
+
     return ok(data={"token_id": token_id, "doctor_id": doctor_id, "status": "in_consultation"}, message="Consultation started")
 
 
@@ -379,6 +385,12 @@ async def consultation_end(
     except Exception:
         pass
 
+    try:
+        from app.routes.realtime import notify_queue_update
+        await notify_queue_update(token.hospital_id, token.doctor_id)
+    except Exception:
+        pass
+
     return ok(
         data={
             "token_id": token_id,
@@ -491,15 +503,37 @@ async def re_add_skipped_patient(
         )
 
     now = datetime.utcnow()
+    today = now.date()
+
+    # Re-add the patient at the END of the current active queue (a new number
+    # after everyone still waiting), keeping their ticket's letter prefix.
+    max_num = db.query(func.max(Token.token_number)).filter(
+        Token.doctor_id == token.doctor_id,
+        Token.id != token.id,
+        func.date(Token.appointment_date) == today,
+        Token.status.in_(["pending", "waiting", "confirmed", "called", "in_consultation"]),
+    ).scalar() or 0
+    new_num = int(max_num) + 1
+    prefix = "".join(ch for ch in (token.display_code or "A000") if not ch.isdigit()) or "A"
+
+    token.token_number = new_num
+    token.display_code = f"{prefix}{new_num:03d}"
     token.status = "pending"
+    token.skip_count = 0  # fresh start: re-added patient gets the full skip cycle again
     token.updated_at = now
     db.commit()
     db.refresh(token)
 
-    logger.info(f"User {current_user.user_id} re-added skipped token {token_id}")
+    logger.info(f"User {current_user.user_id} re-added skipped token {token_id} at end (num {new_num})")
 
     try:
         log_action(current_user.user_id, role, action="RE_ADD", token_id=token_id)
+    except Exception:
+        pass
+
+    try:
+        from app.routes.realtime import notify_queue_update
+        await notify_queue_update(token.hospital_id, token.doctor_id)
     except Exception:
         pass
 

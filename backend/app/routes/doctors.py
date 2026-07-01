@@ -168,7 +168,7 @@ def _normalize_time_to_hhmm(s: Optional[str]) -> Optional[str]:
         return None
     except Exception:
         return None
-
+    
 def _validate_pakistan_phone(phone: str) -> str:
     """
     Validates and normalizes Pakistan phone numbers.

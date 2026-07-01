@@ -140,14 +140,16 @@ export class ReceptionManageDoctorsComponent implements OnInit, OnDestroy {
     }
 
     getStatusClass(doctor: any): string {
-        if (doctor.onLeave) return 'status-badge status-on-leave';
-        if (doctor.available) return 'status-badge status-available';
+        if (doctor.onLeave || doctor.status === 'on_leave') return 'status-badge status-on-leave';
+        if (doctor.available || doctor.status === 'available') return 'status-badge status-available';
+        if (doctor.status === 'busy') return 'status-badge status-consulting';
         return 'status-badge status-offline';
     }
 
     getStatusText(doctor: any): string {
-        if (doctor.onLeave) return 'On Leave';
-        if (doctor.available) return 'Available';
+        if (doctor.onLeave || doctor.status === 'on_leave') return 'On Leave';
+        if (doctor.available || doctor.status === 'available') return 'Available';
+        if (doctor.status === 'busy') return 'Consulting';   // consulting a patient = on duty, not unavailable
         return 'Unavailable';
     }
 

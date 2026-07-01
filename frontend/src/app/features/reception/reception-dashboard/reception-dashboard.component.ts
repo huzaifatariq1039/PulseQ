@@ -24,6 +24,7 @@ import { StaffPortalService } from '../../../core/services/staff-portal.service'
 import { ReceptionService } from '../../../core/services/reception.service';
 import { DoctorService } from '../../../core/services/doctor.service';
 import { AuthService } from '../../../core/services/auth.service';
+import { RealtimeService } from '../../../core/services/realtime.service';
 
 interface Patient {
   id?: string;
@@ -126,7 +127,8 @@ export class ReceptionDashboardComponent implements OnInit, OnDestroy {
     private staffService: StaffPortalService,
     private receptionService: ReceptionService,
     private doctorService: DoctorService,
-    private authService: AuthService
+    private authService: AuthService,
+    private realtimeService: RealtimeService
   ) { }
 
   ngOnInit() {
@@ -134,6 +136,19 @@ export class ReceptionDashboardComponent implements OnInit, OnDestroy {
     this.loadDepartments();
     this.loadDoctors();
     this.loadQueueThenStats();
+
+    // Real-time sync: refresh the whole dashboard (queue, upcoming, skipped,
+    // stats) whenever anything changes it in any portal.
+    const hospitalId = this.getHospitalId();
+    if (hospitalId) {
+      this.realtimeService.connect(`hospital_${hospitalId}`)
+        .pipe(takeUntil(this.destroy$))
+        .subscribe((message: any) => {
+          if (message?.type && message.type !== 'ack') {
+            this.loadQueueThenStats();
+          }
+        });
+    }
   }
 
   private getHospitalId(): string {
@@ -187,12 +202,12 @@ export class ReceptionDashboardComponent implements OnInit, OnDestroy {
     const tokensArray = Array.isArray(rawTokens) ? rawTokens : [];
 
     this.allTokens = tokensArray.map((t: any) => {
-      const statusRaw = t.status || t.state || 'WAITING';
+      const s = String(t.status || t.state || 'WAITING').toLowerCase();
       let mappedStatus: 'pending' | 'completed' | 'skipped' | 'inProgress' = 'pending';
-      if (statusRaw === 'IN_PROGRESS') mappedStatus = 'inProgress';
-      else if (statusRaw === 'WAITING' || statusRaw === 'pending') mappedStatus = 'pending';
-      else if (statusRaw === 'DONE' || statusRaw === 'completed') mappedStatus = 'completed';
-      else if (statusRaw === 'SKIPPED' || statusRaw === 'skipped') mappedStatus = 'skipped';
+      if (s === 'in_progress' || s === 'in_consultation' || s === 'called') mappedStatus = 'inProgress';
+      else if (s === 'done' || s === 'completed') mappedStatus = 'completed';
+      else if (s === 'skipped' || s === 'cancelled') mappedStatus = 'skipped';
+      else mappedStatus = 'pending';
 
       return {
         token: t.token_number || t.tokenNumber || t.token || 'T-00',
@@ -209,6 +224,10 @@ export class ReceptionDashboardComponent implements OnInit, OnDestroy {
       } as any;
     });
 
+    // Queue can come back in any order — sort ascending by token number so the
+    // "next up" and upcoming list are correct.
+    this.allTokens.sort((a: any, b: any) => this.tokenNum(a.token) - this.tokenNum(b.token));
+
     const backendSkipped = this.allTokens.filter(t => t.status === 'skipped');
     if (backendSkipped.length > 0) {
       this.skippedTokens = backendSkipped;
@@ -218,18 +237,40 @@ export class ReceptionDashboardComponent implements OnInit, OnDestroy {
 
     this.completedCount = this.allTokens.filter(t => t.status === 'completed').length;
 
+    // Current serving = the in-consultation patient; else the lowest-numbered
+    // waiting patient. (The authoritative now_serving from the stats endpoint
+    // refines this right after, in loadDashboardStats.)
     const inProgress = this.allTokens.find(x => x.status === 'inProgress');
-    if (inProgress) {
-      this.current = inProgress;
-    } else {
-      const waitingTokens = this.allTokens.filter(x => x.status === 'pending');
-      this.current = waitingTokens.length ? waitingTokens[0] : null;
-    }
+    const waitingTokens = this.allTokens.filter(x => x.status === 'pending');
+    this.current = inProgress || (waitingTokens.length ? waitingTokens[0] : null);
 
     this.allUpcoming = this.allTokens.filter(
-      t => t.status === 'pending' && t.token !== this.current?.token
+      t => t.status === 'pending' && t.id !== this.current?.id
     );
     this.filterByDepartment();
+  }
+
+  /** Numeric value of a token label (e.g. "A005" -> 5) for sorting. */
+  private tokenNum(token: any): number {
+    const n = parseInt(String(token ?? '').replace(/\D/g, ''), 10);
+    return isNaN(n) ? 0 : n;
+  }
+
+  /** Human label for a doctor's status. A consulting doctor is "Consulting", not unavailable. */
+  doctorStatusLabel(doc: any): string {
+    switch (String(doc?.status ?? (doc?.available ? 'available' : '')).toLowerCase()) {
+      case 'available': return 'Available';
+      case 'busy': return 'Consulting';
+      case 'on_leave': return 'On Leave';
+      case 'offline': return 'Offline';
+      default: return doc?.available ? 'Available' : 'Offline';
+    }
+  }
+
+  /** Whether the doctor is on duty (available or currently consulting). */
+  doctorOnDuty(doc: any): boolean {
+    const s = String(doc?.status ?? '').toLowerCase();
+    return doc?.available || s === 'available' || s === 'busy';
   }
 
   loadQueue(): void {
@@ -271,7 +312,16 @@ export class ReceptionDashboardComponent implements OnInit, OnDestroy {
             status: 'inProgress',
             id: nowServing.token_id || nowServing.id || ''
           };
+        } else {
+          // No one is being served right now.
+          this.current = null;
         }
+
+        // Rebuild the upcoming list against the authoritative current-serving.
+        this.allUpcoming = this.allTokens.filter(
+          t => t.status === 'pending' && t.id !== this.current?.id
+        );
+        this.filterByDepartment();
 
         if (data.cards) {
           this.waitingCount = data.cards.waiting || 0;
@@ -297,6 +347,7 @@ export class ReceptionDashboardComponent implements OnInit, OnDestroy {
             qualifications: '',
             timings: '',
             available: d.status === 'available',
+            status: d.status,
             onLeave: d.status === 'on_leave',
             fee: '',
             department: d.department
@@ -342,6 +393,7 @@ export class ReceptionDashboardComponent implements OnInit, OnDestroy {
           qualifications: d.qualifications || '',
           timings: `${this.convertTo12Hour(d.start_time)} - ${this.convertTo12Hour(d.end_time)}`,
           available: d.status === 'available',
+          status: d.status,
           onLeave: d.status === 'on_leave',
           fee: `Rs. ${d.consultation_fee || 0}`,
           department: d.department
@@ -519,50 +571,6 @@ export class ReceptionDashboardComponent implements OnInit, OnDestroy {
         });
       }
     });
-  }
-
-  reAddToQueue(patient: Patient): void {
-    if (!patient.id) {
-      this.messageService.add({
-        severity: 'error', summary: 'Error', detail: 'Patient ID not found', life: 3000
-      });
-      return;
-    }
-    this.receptionService.reAddToken(patient.id)
-      .pipe(takeUntil(this.destroy$))
-      .subscribe({
-        next: (response: any) => {
-          const updatedStatus = response?.data?.status;
-          if (updatedStatus && updatedStatus.toLowerCase() !== 'skipped') {
-            this.messageService.add({
-              severity: 'success', summary: 'Re-added to Queue',
-              detail: `${patient.token} - ${patient.name}`, life: 3000
-            });
-            const tokenInAll = this.allTokens.find(t => t.token === patient.token);
-            if (tokenInAll) {
-              tokenInAll.status = 'pending';
-              this.syncSkippedFromAllTokens();
-            } else {
-              this.removeFromSkippedStorage(patient.token);
-            }
-            this.refreshUpcomingList();
-          } else {
-            this.messageService.add({
-              severity: 'error', summary: 'Backend Error',
-              detail: `Backend failed to update token status. Still: ${updatedStatus}. Contact admin.`,
-              life: 5000
-            });
-          }
-          setTimeout(() => this.loadQueueThenStats(), 500);
-        },
-        error: (err) => {
-          console.error('Failed to re-add token:', err);
-          this.messageService.add({
-            severity: 'error', summary: 'Error',
-            detail: 'Failed to re-add patient to queue', life: 3000
-          });
-        }
-      });
   }
 
   addWalkIn(): void {

@@ -159,9 +159,7 @@
                             <button pButton icon="pi pi-trash" severity="danger"
                                 class="p-button-text p-button-plain action-btn" pTooltip="Delete" tooltipPosition="top"
                                 (click)="delete(row)"></button>
-                            <button pButton icon="pi pi-undo" label="Re-add" severity="warning"
-                                class="p-button-sm re-add-btn" pTooltip="Re-add to Queue" tooltipPosition="top"
-                                (click)="reAddToken(row)" *ngIf="row.status === 'skipped'"></button>
+                            <!-- Re-add is doctor-only: reception can no longer re-add skipped patients. -->
                         </div>
                     </td>
                 </tr>
@@ -289,11 +287,8 @@
         <div *ngIf="editModel.status === 'skipped'" class="readd-section">
             <div class="skipped-notice">
                 <i class="pi pi-exclamation-triangle"></i>
-                This patient has been skipped.
+                This patient has been skipped. Only the doctor can re-add them to the queue.
             </div>
-            <button pButton icon="pi pi-undo" label="Re-add to Queue" (click)="reAddToken(editModel); editVisible=false"
-                class="p-button-success readd-full-btn">
-            </button>
         </div>
         <div class="dialog-actions">
             <button pButton label="Save Changes" icon="pi pi-check" (click)="saveEdit()" class="p-button-success"

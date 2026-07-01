@@ -42,3 +42,11 @@ out/
 *.swp
 *.swo
 *~
+
+# macOS / stray artifacts
+*.pkg
+/package-lock.json
+
+# Local-only dev seed script (never deploy / run against prod)
+backend/seed_dummy_data.py
+*.zip

@@ -78,7 +78,9 @@ export class QueueService {
   }
 
   skipPatient(tokenId: string): Observable<any> {
-    return this.http.post(`${this.CONSULTATION_API}/skip/${tokenId}`, {});
+    // Smart skip (doctor portal): 1st/2nd skip moves the patient down one spot;
+    // 3rd+ skip of the same patient sends them to the end of the queue.
+    return this.http.post(`${environment.apiBaseUrl}/staff/portal/doctor/tokens/${tokenId}/skip`, {});
   }
 
   reAddToQueue(tokenId: string): Observable<any> {
