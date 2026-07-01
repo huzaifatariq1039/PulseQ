@@ -9,6 +9,7 @@ from app.utils.responses import ok
 from datetime import datetime, timezone, time
 import random
 import logging
+from sqlalchemy import func
 from app.services.cache_service import CacheService, cached
 
 # FIX 4: Split into two routers — public (read-only) and staff (write + auth-gated)
@@ -168,7 +169,29 @@ def _normalize_time_to_hhmm(s: Optional[str]) -> Optional[str]:
     except Exception:
         return None
 
-
+def _validate_pakistan_phone(phone: str) -> str:
+    """
+    Validates and normalizes Pakistan phone numbers.
+    Accepts: +923311234567 or 03311234567
+    Returns: normalized number or raises HTTPException
+    """
+    if not phone:
+        return phone
+    
+    p = str(phone).strip().replace(" ", "").replace("-", "")
+    
+    # Format 1: +92XXXXXXXXXX (13 chars)
+    if p.startswith("+92") and len(p) == 13 and p[3:].isdigit():
+        return p
+    
+    # Format 2: 03XXXXXXXXX (11 chars)
+    if p.startswith("0") and len(p) == 11 and p.isdigit():
+        return p
+    
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail=f"Invalid phone number '{phone}'. Must be in Pakistan format: +923311234567 or 03311234567"
+    )
 # ---------------------------------------------------------------------------
 # FIX 3: Static/specific routes FIRST, dynamic /{doctor_id} routes LAST
 # ---------------------------------------------------------------------------
@@ -438,7 +461,14 @@ async def create_doctor(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No hospital associated with this account")
 
     # Check email uniqueness across ALL doctors (not just same hospital)
+    # Validate phone format first
+    if doctor.phone:
+        doctor.phone = _validate_pakistan_phone(doctor.phone)
+
+    # Check email uniqueness across ALL doctors (not just same hospital)
+    # Check email uniqueness — check both doctors table AND users table
     if doctor.email:
+        # Check doctors table directly
         existing_doctor_email = db.query(Doctor).filter(
             Doctor.email == doctor.email
         ).first()
@@ -446,6 +476,16 @@ async def create_doctor(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"A doctor with email {doctor.email} already exists. Use a different email.",
+            )
+
+        # Also check users table (doctor login accounts stored here)
+        existing_user_email = db.query(User).filter(
+            func.lower(User.email) == doctor.email.lower()
+        ).first()
+        if existing_user_email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"A user account with email {doctor.email} already exists. Use a different email.",
             )
 
     # Check phone uniqueness across ALL doctors
@@ -458,7 +498,7 @@ async def create_doctor(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"A doctor with phone {doctor.phone} already exists. Use a different phone number.",
             )
-
+        
     import uuid
     doctor_data = doctor.dict(exclude_none=True)
         
@@ -1005,6 +1045,9 @@ async def receptionist_update_doctor(
         "qualification", "degrees", "patients_per_day", "status",
     }
     update: Dict[str, Any] = {k: v for k, v in (payload or {}).items() if k in allowed}
+
+    if "phone" in update and update["phone"]:
+        update["phone"] = _validate_pakistan_phone(update["phone"])
 
     if "fee" in update and "consultation_fee" not in update:
         update["consultation_fee"] = update.get("fee")
