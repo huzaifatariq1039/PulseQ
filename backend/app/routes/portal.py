@@ -389,6 +389,7 @@ async def doctor_dashboard(
         
         return {
             "token_id": t.id,
+            "patient_id": t.patient_id,
             "token_number": t.display_code or str(t.token_number),
             "mrn": getattr(t, 'mrn', None) or "N/A",
             "patient_name": t.patient_name or "Unknown",
@@ -565,11 +566,11 @@ async def receptionist_dashboard(
     
     todays = query.all()
     
-    waiting = [t for t in todays if str(t.status).lower() in ("pending", "confirmed")]
+    waiting = [t for t in todays if str(t.status).lower() in ("pending", "confirmed", "waiting")]
     completed = [t for t in todays if str(t.status).lower() == "completed"]
     skipped = [t for t in todays if str(t.status).lower() in ("skipped", "cancelled")]
-    
-    active = [t for t in todays if str(t.status).lower() in ("in_consultation", "pending", "confirmed", "called")]
+
+    active = [t for t in todays if str(t.status).lower() in ("in_consultation", "pending", "confirmed", "called", "waiting")]
     active.sort(key=lambda x: x.token_number)
     
     now_serving = next((t for t in active if str(t.status).lower() in ("in_consultation", "called")), active[0] if active else None)
@@ -941,6 +942,13 @@ async def receptionist_create_walkin_token(
         except Exception as e:
             logger.error(f"Failed to send WhatsApp walk-in confirmation for token {token_id}: {e}")
 
+    # Real-time sync: new walk-in patient shows on the doctor board immediately.
+    try:
+        from app.routes.realtime import notify_queue_update
+        await notify_queue_update(getattr(doctor, "hospital_id", None), doctor.id)
+    except Exception:
+        pass
+
     return ok(data={
             "token_id": token_id,
             "token_number": display_code,
@@ -987,6 +995,12 @@ async def receptionist_skip_token(
     except Exception as e:
         logger.error(f"Failed to schedule skip messages for token {token_id}: {e}")
     
+    try:
+        from app.routes.realtime import notify_queue_update
+        await notify_queue_update(token.hospital_id, token.doctor_id)
+    except Exception:
+        pass
+
     return ok(message="Token skipped")
 
 
@@ -1019,11 +1033,16 @@ async def doctor_skip_token(
     now = datetime.utcnow()
     today = now.date()
 
-    # Find the next waiting token for this doctor (lowest token_number among waiting ones)
+    ACTIVE = ["pending", "waiting", "confirmed", "called", "in_consultation"]
+
+    # The patient immediately BEHIND this one (next higher token_number still
+    # waiting). Swapping with them moves this patient down exactly one spot,
+    # regardless of where in the queue they currently sit.
     next_waiting = db.query(Token).filter(
         Token.doctor_id == token.doctor_id,
         Token.id != token.id,
         Token.status.in_(["pending", "waiting", "confirmed"]),
+        Token.token_number > token.token_number,
         func.date(Token.appointment_date) == today,
     ).order_by(Token.token_number.asc()).first()
 
@@ -1032,27 +1051,44 @@ async def doctor_skip_token(
     token.skipped_at = now
     token.updated_at = now
 
-    next_token_data = None
-
-    if next_waiting:
-        # Swap token_number / display_code between the skipped token and the next waiting one
+    if skip_count >= 4:
+        # 4th (or later) skip of the SAME patient → pull them OUT of the active
+        # queue into the Skipped list. Only the doctor can re-add them from there.
+        token.status = "skipped"
+        moved = "skipped"
+    elif skip_count == 3:
+        # 3rd skip → move to the END of the queue by SWAPPING places with the
+        # current last patient. Never mint a new/higher number — token numbers
+        # only grow when a NEW patient is added, not when someone is skipped.
+        last_token = db.query(Token).filter(
+            Token.doctor_id == token.doctor_id,
+            Token.id != token.id,
+            Token.status.in_(["pending", "waiting", "confirmed", "called"]),
+            func.date(Token.appointment_date) == today,
+        ).order_by(Token.token_number.desc()).first()
+        if last_token and (last_token.token_number or 0) > (token.token_number or 0):
+            token.token_number, last_token.token_number = last_token.token_number, token.token_number
+            token.display_code, last_token.display_code = last_token.display_code, token.display_code
+            last_token.updated_at = now
+        token.status = "waiting"
+        moved = "end"
+    elif next_waiting:
+        # 1st / 2nd skip → move DOWN ONE spot: swap position with the next patient,
+        # so the next patient becomes current and this patient sits just behind them.
         token.token_number, next_waiting.token_number = next_waiting.token_number, token.token_number
         token.display_code, next_waiting.display_code = next_waiting.display_code, token.display_code
-
-        # The promoted token (now holding the skipped token's old number) becomes current
-        next_waiting.status = "called"
-        next_waiting.called_at = now
         next_waiting.updated_at = now
-
-    if skip_count >= 3:
-        # Pulled from active queue entirely — only visible to receptionist for manual re-add
-        token.status = "skipped"
+        token.status = "waiting"
+        moved = "down"
     else:
-        # Goes back into the normal waiting queue with its new (swapped) number
-        token.status = "pending"
+        # No one else is waiting — nothing to swap with; keep them in the queue.
+        token.status = "waiting"
+        moved = "none"
 
     db.commit()
     db.refresh(token)
+
+    next_token_data = None
     if next_waiting:
         db.refresh(next_waiting)
         next_token_data = {k: v for k, v in next_waiting.__dict__.items() if not k.startswith('_')}
@@ -1064,19 +1100,32 @@ async def doctor_skip_token(
     except Exception as e:
         logger.error(f"Failed to schedule skip messages for token {token_id}: {e}")
 
+    # Real-time sync: tell the doctor + reception boards the queue changed.
+    try:
+        from app.routes.realtime import notify_queue_update
+        await notify_queue_update(token.hospital_id, token.doctor_id)
+    except Exception:
+        pass
+
+    if moved == "skipped":
+        msg = f"Skipped {skip_count} times — moved to the Skipped list. Only the doctor can re-add."
+    elif moved == "end":
+        msg = f"Skipped {skip_count} times — moved to the end of the queue."
+    elif moved == "down":
+        msg = f"Token skipped ({skip_count}/3) — moved down one spot."
+    else:
+        msg = "Token skipped — no other patients are waiting."
+
     return ok(
         data={
             "token_id": token_id,
             "status": token.status,
             "skip_count": skip_count,
-            "removed_from_queue": skip_count >= 3,
-            "next_called_token": next_token_data
+            "sent_to_end": moved == "end",
+            "moved_to_skipped": moved == "skipped",
+            "next_token": next_token_data,
         },
-        message=(
-            f"Token skipped successfully ({skip_count}/3). Removed from active queue — receptionist must re-add."
-            if skip_count >= 3 else
-            f"Token skipped successfully ({skip_count}/3). Re-entered queue with new position."
-        )
+        message=msg,
     )
 
 
@@ -1107,51 +1156,24 @@ async def receptionist_update_token(
                 detail=f"Invalid status. Must be one of: {', '.join(valid_statuses)}"
             )
         
+        # Re-adding a skipped patient is a DOCTOR-only action now — reception
+        # cannot revive a skipped token.
         if str(token.status).lower() == "skipped" and new_status in ["waiting", "confirmed", "pending"]:
-            if (token.skip_count or 0) < 3:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Token has only been skipped {token.skip_count or 0} time(s). It must be skipped 3 times before it can be manually re-added."
-                )
-
-            today = datetime.utcnow().date()
-            last_token = db.query(Token).filter(
-                Token.doctor_id == token.doctor_id,
-                Token.id != token.id,
-                func.date(Token.appointment_date) == today,
-            ).order_by(Token.token_number.desc()).first()
-
-            new_number = (last_token.token_number + 1) if last_token else 1
-
-            doc = db.query(Doctor).filter(Doctor.id == token.doctor_id).first()
-            doc_initial = "T"
-            if doc and doc.name:
-                clean_name = doc.name[2:].replace(".", "").strip() if doc.name.lower().startswith("dr") else doc.name.strip()
-                doc_initial = clean_name[0].upper() if clean_name else "T"
-
-            token.token_number = new_number
-            token.display_code = f"{doc_initial}-{new_number:03d}"
-            token.skip_count = 0
-            token.status = new_status
-            token.updated_at = datetime.utcnow()
-            db.commit()
-            db.refresh(token)
-
-            return ok(
-                data={
-                    "token_id": token.id,
-                    "display_code": token.display_code,
-                    "patient_name": token.patient_name,
-                    "status": token.status,
-                    "previous_status": "skipped"
-                },
-                message=f"Token re-added successfully at end of queue with new number: {token.display_code}"
+            raise HTTPException(
+                status_code=403,
+                detail="Skipped patients can only be re-added by the doctor."
             )
-        
+
         token.status = new_status
         token.updated_at = datetime.utcnow()
         db.commit()
-        
+
+        try:
+            from app.routes.realtime import notify_queue_update
+            await notify_queue_update(token.hospital_id, token.doctor_id)
+        except Exception:
+            pass
+
         return ok(
             data={"token_id": token.id, "status": token.status},
             message="Token status updated successfully"
@@ -1194,7 +1216,13 @@ async def receptionist_update_token(
             user.phone = token.patient_phone
         user.updated_at = datetime.utcnow()
         db.commit()
-    
+
+    try:
+        from app.routes.realtime import notify_queue_update
+        await notify_queue_update(token.hospital_id, token.doctor_id)
+    except Exception:
+        pass
+
     return ok(
         data={
             "token_id": token.id,
@@ -1233,7 +1261,13 @@ async def receptionist_delete_token(
     token.cancelled_at = datetime.utcnow()
     token.updated_at = datetime.utcnow()
     db.commit()
-    
+
+    try:
+        from app.routes.realtime import notify_queue_update
+        await notify_queue_update(token.hospital_id, token.doctor_id)
+    except Exception:
+        pass
+
     return ok(
         data={
             "token_id": token.id,

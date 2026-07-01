@@ -16,6 +16,7 @@ import { QueueService } from '../../../core/services/queue.service';
 import { DoctorService } from '../../../core/services/doctor.service';
 import { ReceptionService } from '../../../core/services/reception.service';
 import { AuthService } from '../../../core/services/auth.service';
+import { RealtimeService } from '../../../core/services/realtime.service';
 import { Token } from '../../../shared/models/token.model';
 import { Doctor } from '../../../shared/models/doctor.model';
 import { ReceptionSidebarComponent } from '../shared/components/reception-sidebar/reception-sidebar.component';
@@ -152,6 +153,7 @@ export class ReceptionQueueComponent implements OnInit, OnDestroy {
         private receptionService: ReceptionService,
         private authService: AuthService,
         private notificationService: NotificationService,
+        private realtimeService: RealtimeService,
         private elRef: ElementRef
     ) { }
 
@@ -166,6 +168,18 @@ export class ReceptionQueueComponent implements OnInit, OnDestroy {
             .subscribe(doctors => {
                 this.availableDoctors = doctors.filter(d => d.available);
             });
+
+        // Real-time sync: reload the queue whenever anything changes it (e.g. a
+        // doctor skips/starts/finishes a patient), so the board stays live.
+        const hospitalId = this.getHospitalId();
+        if (hospitalId) {
+            this.realtimeService.connect(`hospital_${hospitalId}`)
+                .pipe(takeUntil(this.destroy$))
+                .subscribe(message => {
+                    if (message?.type === 'ack') return;
+                    this.loadQueue();
+                });
+        }
     }
 
     ngOnDestroy(): void {
@@ -508,36 +522,6 @@ export class ReceptionQueueComponent implements OnInit, OnDestroy {
                 error: (err) => {
                     console.error('Failed to skip token:', err);
                     this.messageService.add({ severity: 'error', summary: 'Error', detail: err?.error?.message || 'Failed to skip token', life: 3000 });
-                }
-            });
-    }
-
-    reAddToken(row: Partial<Patient>) {
-        if (!row.id) {
-            this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Patient ID not found', life: 3000 });
-            return;
-        }
-        this.receptionService.reAddToken(row.id)
-            .pipe(takeUntil(this.destroy$))
-            .subscribe({
-                next: (response: any) => {
-                    const updatedStatus = response?.data?.status;
-                    if (updatedStatus && updatedStatus.toLowerCase() !== 'skipped') {
-                        const arr3 = this.queueService.getQueueSnapshot();
-                        const found3 = arr3.find(x => x.tokenNumber === row.token);
-                        if (found3) this.queueService.updateTokenStatus(found3.id, 'WAITING');
-                        this.messageService.add({ severity: 'success', summary: 'Re-added', detail: `${row.token} added back to queue`, life: 3000 });
-                    } else {
-                        this.messageService.add({
-                            severity: 'error', summary: 'Backend Error',
-                            detail: `Failed to update token status. Status still: ${updatedStatus}. Contact admin.`, life: 5000
-                        });
-                    }
-                    setTimeout(() => this.loadQueue(), 500);
-                },
-                error: (err) => {
-                    console.error('Failed to re-add token:', err);
-                    this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Failed to re-add patient to queue', life: 3000 });
                 }
             });
     }

@@ -10,12 +10,12 @@
     </div>
 
     <nav class="topnav mobile-dropdown" [class.open]="mobileMenuOpen">
-        <a routerLink="../dashboard" routerLinkActive="active" [routerLinkActiveOptions]="{exact:true}"
+        <a [routerLink]="dashboardPath" routerLinkActive="active" [routerLinkActiveOptions]="{exact:true}"
             (click)="mobileMenuOpen=false">Dashboard</a>
-        <a routerLink="../new-token" routerLinkActive="active" (click)="mobileMenuOpen=false">New Token</a>
-        <a routerLink="../live-status" routerLinkActive="active" (click)="mobileMenuOpen=false">Live Status</a>
-        <a routerLink="../my-token" routerLinkActive="active" (click)="mobileMenuOpen=false">My Token</a>
-        <a routerLink="../history" routerLinkActive="active" (click)="mobileMenuOpen=false">History</a>
+        <a [routerLink]="newTokenPath" routerLinkActive="active" (click)="mobileMenuOpen=false">New Token</a>
+        <a [routerLink]="liveStatusPath" routerLinkActive="active" (click)="mobileMenuOpen=false">Live Status</a>
+        <a [routerLink]="myTokenPath" routerLinkActive="active" (click)="mobileMenuOpen=false">My Token</a>
+        <a [routerLink]="historyPath" routerLinkActive="active" (click)="mobileMenuOpen=false">History</a>
     </nav>
 
     <!-- Close button for mobile menu -->
@@ -25,14 +25,14 @@
 
     <div class="topbar-right">
         <div class="notif-wrapper">
-            <a pButton type="button" icon="pi pi-bell" class="p-button-text" routerLink="../notifications"
+            <a pButton type="button" icon="pi pi-bell" class="p-button-text" [routerLink]="notificationsPath"
                 aria-label="Notifications">
             </a>
             <span class="notif-badge" *ngIf="unreadCount > 0">
                 {{ unreadCount > 99 ? '99+' : unreadCount }}
             </span>
         </div>
-        <a routerLink="../profile" class="avatar" title="Profile">
+        <a [routerLink]="profilePath" class="avatar" title="Profile">
             <i class="pi pi-user" aria-hidden="true"></i>
         </a>
     </div>

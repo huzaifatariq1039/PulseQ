@@ -43,6 +43,7 @@ from app.routes import ratings
 from app.routes.whatsapp_webhook import router as whatsapp_webhook_router
 from app.routes.pharmacy import public_router as pharmacy_public_router
 from app.routes.pharmacy import router as pharmacy_portal_router
+from app.routes.pharmacy_ledger import router as pharmacy_ledger_router
 from app.routes.token_alias import token_alias_router
 from app.routes.auth_otp import router as otp_router
 
@@ -215,6 +216,7 @@ app.include_router(realtime.router, prefix="/api/v1/staff/realtime", tags=["Staf
 app.include_router(portal.router, prefix="/api/v1/staff/portal", tags=["Staff Portal"])
 app.include_router(portal.router, prefix="/api/v1/portal", tags=["Staff Portal (Alias)"])
 app.include_router(pharmacy_portal_router, prefix="/api/v1/staff/pharmacy", tags=["Staff Portal"])
+app.include_router(pharmacy_ledger_router, prefix="/api/v1/staff/pharmacy", tags=["Staff Portal - Expense & Credit"])
  
 # 5. Intelligence & AI
 app.include_router(ml.router, prefix="/api/v1/ai/ml", tags=["Intelligence Services"])

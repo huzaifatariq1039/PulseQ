@@ -121,6 +121,20 @@ class RealTimeConnectionManager:
         except Exception as e:
             logger.error(f"Redis listener for room {room} failed: {e}")
 
+    async def broadcast(self, room: str, message: dict) -> None:
+        """Deliver a message to a room's clients.
+
+        Sends directly to locally-connected clients (works even without Redis,
+        e.g. in local dev) AND publishes to Redis so other server instances relay
+        it to their own clients. Clients treat these as idempotent refresh signals,
+        so an occasional duplicate on the same instance is harmless.
+        """
+        try:
+            await self._send_to_local_connections(room, message)
+        except Exception as e:
+            logger.debug(f"Local broadcast to {room} failed: {e}")
+        await self.broadcast_via_redis(room, message)
+
     async def _send_to_local_connections(self, room: str, message: dict) -> None:
         """Send a message to all local WebSocket connections in a room."""
         conns = list(self.active_connections.get(room, []))
@@ -140,6 +154,37 @@ class RealTimeConnectionManager:
 
 # Global manager instance
 manager = RealTimeConnectionManager()
+
+
+async def notify_queue_update(
+    hospital_id: Optional[str],
+    doctor_id: Optional[str] = None,
+    extra: Optional[dict] = None,
+) -> None:
+    """Broadcast a 'queue changed' signal to everyone affected by a queue change.
+
+    Broadcasts to two rooms so all three portals stay in sync in real time:
+      - ``hospital_<id>``  → doctor dashboard + reception board
+      - ``doctor_<id>``    → the doctor's patients (patient portal my-token page)
+
+    e.g. a doctor skipping a patient immediately updates the reception board AND
+    the affected patient's token number in their own portal.
+    """
+    payload = {"type": "QUEUE_UPDATE"}
+    if extra:
+        payload.update(extra)
+
+    rooms = []
+    if hospital_id:
+        rooms.append(f"hospital_{hospital_id}")
+    if doctor_id:
+        rooms.append(f"doctor_{doctor_id}")
+
+    for room in rooms:
+        try:
+            await manager.broadcast(room, payload)
+        except Exception as e:
+            logger.error(f"notify_queue_update failed for room {room}: {e}")
 
 
 @router.websocket("/ws/{room}")

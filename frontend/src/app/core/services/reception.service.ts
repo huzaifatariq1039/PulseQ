@@ -76,11 +76,6 @@ export class ReceptionService {
     return this.http.patch(`${this.STAFF_PORTAL_API}/tokens/${tokenId}`, { status });
   }
 
-  /** Re-add skipped token via receptionist portal */
-  reAddToken(tokenId: string): Observable<any> {
-    return this.http.patch(`${this.STAFF_PORTAL_API}/tokens/${tokenId}`, { status: 'WAITING' });
-  }
-
   /** Skip a token (receptionist) */
   skipToken(tokenId: string): Observable<any> {
     return this.http.post(`${this.STAFF_PORTAL_API}/tokens/${tokenId}/skip`, {});

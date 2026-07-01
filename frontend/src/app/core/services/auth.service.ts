@@ -81,10 +81,16 @@ export class AuthService {
       tap(response => {
         this.storeToken(response.access_token);
       }),
-      switchMap(() =>
+      switchMap(response =>
         this.fetchCurrentUser().pipe(
           map(() => true),
-          catchError(() => of(true))
+          catchError(() => {
+            // /auth/me failed — derive a minimal user from the JWT so the session
+            // is still usable (route guard + getCurrentUser) instead of leaving a
+            // token with no stored user (which makes protected pages bounce to login).
+            this.storeFallbackUserFromToken(response.access_token);
+            return of(true);
+          })
         )
       ),
       catchError(err => {
@@ -226,12 +232,36 @@ export class AuthService {
   fetchCurrentUser(): Observable<AuthUser> {
     return this.http.get<AuthUser>(`${this.API}/auth/me`).pipe(
       tap(user => {
-        this.userSubject.next(user);
+        // Backend returns hospital_id (snake_case); normalize to hospitalId so
+        // all callers (queue, manage-doctors, etc.) can rely on user.hospitalId.
+        const normalized: AuthUser = {
+          ...user,
+          hospitalId: (user as any).hospitalId || (user as any).hospital_id || undefined
+        };
+        this.userSubject.next(normalized);
         try {
-          localStorage.setItem('pulseq_user', JSON.stringify(user));
+          localStorage.setItem('pulseq_user', JSON.stringify(normalized));
         } catch { }
       })
     );
+  }
+
+  /** Decode the JWT payload (no verification) to build a minimal user. */
+  private storeFallbackUserFromToken(token: string): void {
+    try {
+      const part = token.split('.')[1];
+      if (!part) return;
+      const json = atob(part.replace(/-/g, '+').replace(/_/g, '/'));
+      const claims = JSON.parse(json);
+      const user: AuthUser = {
+        id: claims.sub,
+        email: claims.email || '',
+        role: claims.role,
+        hospitalId: claims.hospital_id || undefined
+      };
+      this.userSubject.next(user);
+      localStorage.setItem('pulseq_user', JSON.stringify(user));
+    } catch { /* best effort */ }
   }
 
   getLocationAccess(): Observable<any> {

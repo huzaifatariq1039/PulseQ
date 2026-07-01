@@ -1,0 +1,160 @@
+<div class="layout">
+    <app-pharmacy-sidebar></app-pharmacy-sidebar>
+
+    <main class="main-content">
+        <p-toast></p-toast>
+        <p-confirmDialog></p-confirmDialog>
+
+        <!-- HEADER -->
+        <div class="page-header">
+            <div>
+                <h2>Distributors</h2>
+                <p class="subtitle">Record of medicine distributors &amp; suppliers</p>
+            </div>
+            <div class="header-actions">
+                <button (click)="exportToExcel()" class="export-btn" [disabled]="isExporting">
+                    <i class="pi" [ngClass]="isExporting ? 'pi-spin pi-spinner' : 'pi-download'"></i>
+                    {{ isExporting ? 'Exporting...' : 'Export Excel' }}
+                </button>
+                <button (click)="openAdd()" class="add-btn">
+                    <i class="pi pi-plus"></i>
+                    New Distributor
+                </button>
+            </div>
+        </div>
+
+        <!-- SUMMARY -->
+        <div class="summary-row">
+            <div class="summary-card">
+                <span class="summary-label">Total Distributors</span>
+                <span class="summary-value">{{ distributors.length }}</span>
+            </div>
+            <div class="summary-card accent">
+                <span class="summary-label">Active</span>
+                <span class="summary-value">{{ activeCount }}</span>
+            </div>
+        </div>
+
+        <!-- FILTERS -->
+        <div class="search-filter-row">
+            <span class="search-wrapper">
+                <i class="pi pi-search"></i>
+                <input type="text" placeholder="Search name, company, phone or city" [(ngModel)]="searchText"
+                    (ngModelChange)="onSearchChange()" class="search-input" />
+            </span>
+            <p-dropdown [options]="statusOptions" [(ngModel)]="statusFilter" optionLabel="label" optionValue="value"
+                (onChange)="onFilterChange()" styleClass="sort-dropdown" [style]="{'min-width': '150px'}">
+            </p-dropdown>
+            <button class="clear-btn" (click)="clearFilters()">
+                <i class="pi pi-filter-slash"></i> Clear
+            </button>
+        </div>
+
+        <!-- TABLE -->
+        <div class="table-card">
+            <p-table [value]="distributors" [responsiveLayout]="'scroll'" [paginator]="true" [rows]="10"
+                [rowsPerPageOptions]="[10, 25, 50]" [loading]="isLoading" dataKey="id" styleClass="ledger-table">
+                <ng-template pTemplate="header">
+                    <tr>
+                        <th>Sr #</th>
+                        <th>Distributor Name</th>
+                        <th>Company</th>
+                        <th>Phone</th>
+                        <th>Email</th>
+                        <th>City</th>
+                        <th>Status</th>
+                        <th>Notes</th>
+                        <th class="sticky-col-right">Actions</th>
+                    </tr>
+                </ng-template>
+
+                <ng-template pTemplate="body" let-row>
+                    <tr>
+                        <td>{{ row.serial_no }}</td>
+                        <td class="strong">{{ row.name }}</td>
+                        <td>{{ row.company || '-' }}</td>
+                        <td>{{ row.phone || '-' }}</td>
+                        <td>{{ row.email || '-' }}</td>
+                        <td>{{ row.city || '-' }}</td>
+                        <td>
+                            <span class="badge" [ngClass]="statusBadgeClass(row.status)">{{ row.status | titlecase }}</span>
+                        </td>
+                        <td class="notes-cell" [pTooltip]="row.notes" tooltipPosition="top">{{ row.notes || '-' }}</td>
+                        <td class="sticky-col-right">
+                            <div class="actions-cell">
+                                <button type="button" class="action-btn action-edit" (click)="openEdit(row)"
+                                    pTooltip="Edit">
+                                    <i class="pi pi-pencil"></i>
+                                </button>
+                                <button type="button" class="action-btn action-delete" (click)="delete(row)"
+                                    pTooltip="Delete">
+                                    <i class="pi pi-trash"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                </ng-template>
+
+                <ng-template pTemplate="emptymessage">
+                    <tr>
+                        <td colspan="9">
+                            <div class="empty-state">
+                                <i class="pi pi-truck"></i>
+                                <p>No distributors recorded yet</p>
+                            </div>
+                        </td>
+                    </tr>
+                </ng-template>
+            </p-table>
+        </div>
+    </main>
+</div>
+
+<!-- ADD / EDIT DIALOG -->
+<p-dialog [(visible)]="dialogVisible" [modal]="true" [draggable]="false" [resizable]="false"
+    [style]="{ width: '640px' }" [header]="editingId ? 'Edit Distributor' : 'New Distributor'"
+    styleClass="ledger-dialog">
+    <div class="form-grid">
+        <div class="form-field">
+            <label>Distributor Name <span class="req">*</span></label>
+            <input type="text" [(ngModel)]="form.name" placeholder="Contact / person name" class="form-input" />
+        </div>
+        <div class="form-field">
+            <label>Company</label>
+            <input type="text" [(ngModel)]="form.company" placeholder="Company name" class="form-input" />
+        </div>
+        <div class="form-field">
+            <label>Phone</label>
+            <input type="text" [(ngModel)]="form.phone" placeholder="03xx-xxxxxxx" class="form-input" />
+        </div>
+        <div class="form-field">
+            <label>Email</label>
+            <input type="email" [(ngModel)]="form.email" placeholder="name@company.com" class="form-input" />
+        </div>
+        <div class="form-field">
+            <label>City</label>
+            <input type="text" [(ngModel)]="form.city" placeholder="City" class="form-input" />
+        </div>
+        <div class="form-field">
+            <label>Status</label>
+            <p-dropdown [options]="formStatusOptions" [(ngModel)]="form.status" optionLabel="label"
+                optionValue="value" styleClass="full-dropdown" [style]="{ width: '100%' }"></p-dropdown>
+        </div>
+        <div class="form-field span-2">
+            <label>Address</label>
+            <input type="text" [(ngModel)]="form.address" placeholder="Street / area address" class="form-input" />
+        </div>
+        <div class="form-field span-2">
+            <label>Notes</label>
+            <textarea [(ngModel)]="form.notes" rows="2" placeholder="Optional notes" class="form-input"></textarea>
+        </div>
+    </div>
+
+    <ng-template pTemplate="footer">
+        <button class="cancel-btn" (click)="dialogVisible = false">Cancel</button>
+        <button class="add-btn" (click)="save()" [disabled]="isSaving">
+            <i class="pi" [ngClass]="isSaving ? 'pi-spin pi-spinner' : 'pi-check'"></i>
+            {{ editingId ? 'Update' : 'Save' }}
+        </button>
+    </ng-template>
+</p-dialog>

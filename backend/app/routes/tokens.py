@@ -593,11 +593,15 @@ async def generate_smart_token(
     if not doctor or not hospital:
         raise HTTPException(status_code=400, detail="Doctor or Hospital not found")
 
-    # === NEW: STRICT AVAILABILITY CHECK ===
-    if str(doctor.status or "").lower() != "available":
+    # === AVAILABILITY CHECK ===
+    # A "busy" doctor is one currently CONSULTING a patient — they still accept
+    # new patients into their queue. Only block when genuinely unavailable
+    # (offline / on leave / queue paused).
+    _dstatus = str(doctor.status or "").lower()
+    if _dstatus in ("offline", "on_leave") or bool(getattr(doctor, "queue_paused", False)) or bool(getattr(doctor, "paused", False)):
         raise HTTPException(
-            status_code=400, 
-            detail="Tokens can only be booked when the doctor is currently available."
+            status_code=400,
+            detail="Tokens can't be booked right now — the doctor is offline or on leave."
         )
     # ======================================
 
@@ -783,6 +787,13 @@ async def generate_smart_token(
     db.commit()
     db.refresh(new_token)
 
+    # Real-time sync: a new (online) booking shows on the doctor + reception boards.
+    try:
+        from app.routes.realtime import notify_queue_update
+        await notify_queue_update(new_token.hospital_id, new_token.doctor_id)
+    except Exception:
+        pass
+
     await realtime_manager.broadcast_via_redis(
         f"doctor_{new_token.doctor_id}",
         {"type": "QUEUE_UPDATE"}
@@ -912,11 +923,15 @@ async def create_token(
     if not doctor or not hospital:
         raise HTTPException(status_code=400, detail="Doctor or Hospital not found")
 
-    # === NEW: STRICT AVAILABILITY CHECK ===
-    if str(doctor.status or "").lower() != "available":
+    # === AVAILABILITY CHECK ===
+    # A "busy" doctor is one currently CONSULTING a patient — they still accept
+    # new patients into their queue. Only block when genuinely unavailable
+    # (offline / on leave / queue paused).
+    _dstatus = str(doctor.status or "").lower()
+    if _dstatus in ("offline", "on_leave") or bool(getattr(doctor, "queue_paused", False)) or bool(getattr(doctor, "paused", False)):
         raise HTTPException(
-            status_code=400, 
-            detail="Tokens can only be booked when the doctor is currently available."
+            status_code=400,
+            detail="Tokens can't be booked right now — the doctor is offline or on leave."
         )
     # ======================================
 
@@ -1007,6 +1022,13 @@ async def create_token(
     db.add(new_token)
     db.commit()
     db.refresh(new_token)
+
+    # Real-time sync: a new (online) booking shows on the doctor + reception boards.
+    try:
+        from app.routes.realtime import notify_queue_update
+        await notify_queue_update(new_token.hospital_id, new_token.doctor_id)
+    except Exception:
+        pass
 
     q = _queue_object_for(db, spec.doctor_id, spec.hospital_id, day, token_number)
     token_resp = _to_smart_token_response(new_token)

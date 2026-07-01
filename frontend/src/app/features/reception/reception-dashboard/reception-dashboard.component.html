@@ -84,8 +84,7 @@
                             <div class="skipped-token-id">{{ p.token }}</div>
                             <div class="skipped-meta">{{ p.name }} • {{ p.age }}y • {{ p.department }}</div>
                         </div>
-                        <button pButton icon="pi pi-refresh" label="Re-add" class="readd-btn" (click)="reAddToQueue(p)">
-                        </button>
+                        <span class="doctor-only-note">Doctor re-adds</span>
                     </div>
                 </div>
             </div>
@@ -135,9 +134,10 @@
                             <div class="doctor-name">{{ doc.name }}</div>
                             <div class="doctor-dept">{{ doc.department || doc.specialization }}</div>
                         </div>
-                        <span class="doctor-room" *ngIf="doc.available">Available</span>
-                        <span class="doctor-room" *ngIf="!doc.available"
-                            style="background:#f1f5f9; color:#64748b;">Busy/Leave</span>
+                        <span class="doctor-room" [class.status-consulting]="doc.status === 'busy'"
+                            [class.status-off]="!doctorOnDuty(doc)"
+                            [style.background]="!doctorOnDuty(doc) ? '#f1f5f9' : null"
+                            [style.color]="!doctorOnDuty(doc) ? '#64748b' : null">{{ doctorStatusLabel(doc) }}</span>
                     </div>
                 </div>
             </p-card>
@@ -177,8 +177,8 @@
                 <div class="doctor-info-header">
                     <span class="doctor-info-name">{{ selectedDoctorInfo.name }}</span>
                     <span class="doctor-info-badge"
-                        [ngClass]="selectedDoctorInfo.available ? 'badge-available' : 'badge-unavailable'">
-                        {{ selectedDoctorInfo.available ? 'Available' : 'Unavailable' }}
+                        [ngClass]="doctorOnDuty(selectedDoctorInfo) ? 'badge-available' : 'badge-unavailable'">
+                        {{ doctorStatusLabel(selectedDoctorInfo) }}
                     </span>
                 </div>
                 <div class="doctor-info-detail">

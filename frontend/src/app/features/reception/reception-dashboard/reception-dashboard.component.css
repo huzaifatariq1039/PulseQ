@@ -963,3 +963,12 @@
         max-height: 120px;
     }
 }
+/* Doctor status badge: a consulting (busy) doctor is on-duty, shown distinctly. */
+.doctor-room.status-consulting {
+    background: #fef3c7;
+    color: #b45309;
+}
+.doctor-room.status-off {
+    background: #f1f5f9;
+    color: #64748b;
+}

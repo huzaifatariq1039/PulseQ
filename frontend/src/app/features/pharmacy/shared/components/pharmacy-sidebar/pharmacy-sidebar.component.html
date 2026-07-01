@@ -37,6 +37,21 @@
             <i class="pi pi-file-pdf"></i>
             <span>Invoices</span>
         </a>
+        <a [routerLink]="expensesPath" routerLinkActive="active" class="menu-item"
+            [routerLinkActiveOptions]="{ exact: false }" (click)="sidebarOpen = false">
+            <i class="pi pi-wallet"></i>
+            <span>Expense</span>
+        </a>
+        <a [routerLink]="creditsPath" routerLinkActive="active" class="menu-item"
+            [routerLinkActiveOptions]="{ exact: false }" (click)="sidebarOpen = false">
+            <i class="pi pi-credit-card"></i>
+            <span>Credit</span>
+        </a>
+        <a [routerLink]="distributorsPath" routerLinkActive="active" class="menu-item"
+            [routerLinkActiveOptions]="{ exact: false }" (click)="sidebarOpen = false">
+            <i class="pi pi-truck"></i>
+            <span>Distributors</span>
+        </a>
         <a [routerLink]="addPath" routerLinkActive="active" class="menu-item"
             [routerLinkActiveOptions]="{ exact: false }" (click)="sidebarOpen = false">
             <i class="pi pi-plus-circle"></i>

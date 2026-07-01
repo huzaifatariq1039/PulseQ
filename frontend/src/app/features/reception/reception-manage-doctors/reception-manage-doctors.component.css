@@ -455,3 +455,8 @@
         padding: 0.5rem !important;
     }
 }
+/* Consulting = doctor is actively seeing a patient (on duty, not unavailable). */
+.status-badge.status-consulting {
+    background: #fef3c7;
+    color: #b45309;
+}

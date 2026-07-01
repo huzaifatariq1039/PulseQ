@@ -6,6 +6,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { PatientHeaderComponent } from '../shared/components/patient-header/patient-header.component';
 import { TokenService, SmartTokenResponse } from '../../../core/services/token.service';
 import { UserProfileService, UserProfile } from '../../../core/services/user-profile.service';
+import { RealtimeService } from '../../../core/services/realtime.service';
 import { Subject, interval } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 
@@ -37,10 +38,13 @@ export class LiveStatusComponent implements OnInit, OnDestroy {
     userProfile: UserProfile | null = null;
 
     private destroy$ = new Subject<void>();
+    private pollStarted = false;
+    private realtimeStarted = false;
 
     constructor(
         private tokenService: TokenService,
         private userProfileService: UserProfileService,
+        private realtimeService: RealtimeService,
         private route: ActivatedRoute,
         private router: Router
     ) { }
@@ -79,13 +83,12 @@ export class LiveStatusComponent implements OnInit, OnDestroy {
                             loading: true
                         }));
 
+                        if (this.selectedIndex >= this.tokenStatuses.length) this.selectedIndex = 0;
                         this.tokenStatuses.forEach((_, i) => this.fetchQueueStatus(i));
 
-                        interval(30000)
-                            .pipe(takeUntil(this.destroy$))
-                            .subscribe(() => {
-                                this.tokenStatuses.forEach((_, i) => this.fetchQueueStatus(i));
-                            });
+                        // Poll as a fallback + live updates over WebSocket (set up once).
+                        this.startPollingOnce();
+                        this.setupRealtimeOnce(activeTokens[0].doctor_id);
                     } else {
                         this.hasToken = false;
                     }
@@ -93,6 +96,28 @@ export class LiveStatusComponent implements OnInit, OnDestroy {
                 error: (err) => {
                     console.error('Failed to load active tokens', err);
                     this.hasToken = false;
+                }
+            });
+    }
+
+    private startPollingOnce(): void {
+        if (this.pollStarted) return;
+        this.pollStarted = true;
+        interval(30000)
+            .pipe(takeUntil(this.destroy$))
+            .subscribe(() => this.tokenStatuses.forEach((_, i) => this.fetchQueueStatus(i)));
+    }
+
+    private setupRealtimeOnce(doctorId?: string): void {
+        if (this.realtimeStarted || !doctorId) return;
+        this.realtimeStarted = true;
+        // Same room the doctor broadcasts to — reload the token (new number +
+        // queue position) the instant the doctor skips/starts/finishes a patient.
+        this.realtimeService.connect(`doctor_${doctorId}`)
+            .pipe(takeUntil(this.destroy$))
+            .subscribe((message: any) => {
+                if (message?.type && message.type !== 'ack') {
+                    this.loadAllActiveTokens();
                 }
             });
     }

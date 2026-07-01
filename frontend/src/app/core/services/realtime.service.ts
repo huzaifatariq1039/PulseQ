@@ -183,12 +183,14 @@ export class RealtimeService {
       return null;
     }
 
-    const apiUrl = environment.apiBaseUrl.replace(/\/api\/v1\/?$/, '');
+    // The WebSocket endpoint is mounted at /api/v1/staff/realtime/ws/{room},
+    // so keep the full apiBaseUrl (including /api/v1) and append the route.
+    const apiUrl = environment.apiBaseUrl.replace(/\/$/, '');
     const wsBaseUrl = apiUrl.startsWith('https://')
       ? apiUrl.replace('https://', 'wss://')
       : apiUrl.replace('http://', 'ws://');
 
-    return `${wsBaseUrl}/ws/${encodeURIComponent(room)}`;
+    return `${wsBaseUrl}/staff/realtime/ws/${encodeURIComponent(room)}`;
   }
 
   private isBrowser(): boolean {

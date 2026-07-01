@@ -1,0 +1,375 @@
+/* ─────────────────────────────────────────────────────────────────────────
+   Shared pharmacy ledger theme (Expense). Matches inventory styling.
+───────────────────────────────────────────────────────────────────────── */
+.layout {
+    display: flex;
+    min-height: 100vh;
+    background: #f3f4f6;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.main-content {
+    flex: 1;
+    margin-left: 240px;
+    padding: 1.5rem 1.75rem;
+    min-height: 100vh;
+    min-width: 0;
+    overflow-x: hidden;
+}
+
+/* ─ Header ─ */
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.2rem;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+
+.page-header h2 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #111827;
+}
+
+.subtitle {
+    color: #6b7280;
+    font-size: 0.85rem;
+    margin-top: 0.2rem;
+}
+
+.header-actions {
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+}
+
+.add-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.5rem 1rem;
+    background: #2563eb;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 0.875rem;
+    transition: background 0.2s;
+}
+
+.add-btn:hover:not(:disabled) { background: #1d4ed8; }
+.add-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.export-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    background: #fff;
+    color: #374151;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 0.5rem 1rem;
+    font-weight: 600;
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.export-btn:hover:not(:disabled) {
+    background: #f0fdf4;
+    border-color: #16a34a;
+    color: #16a34a;
+}
+
+.cancel-btn {
+    background: #fff;
+    color: #374151;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 0.5rem 1rem;
+    font-weight: 600;
+    font-size: 0.875rem;
+    cursor: pointer;
+    margin-right: 0.5rem;
+}
+
+.cancel-btn:hover { background: #f3f4f6; }
+
+.clear-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    background: #fff;
+    color: #6b7280;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 0.5rem 0.85rem;
+    font-size: 0.825rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.clear-btn:hover { background: #f9fafb; color: #374151; }
+
+/* ─ Summary cards ─ */
+.summary-row {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1.1rem;
+    flex-wrap: wrap;
+}
+
+.summary-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 0.9rem 1.25rem;
+    min-width: 180px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.summary-card.accent {
+    background: linear-gradient(135deg, #eff6ff, #fff);
+    border-color: #bfdbfe;
+}
+
+.summary-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #9ca3af;
+}
+
+.summary-value {
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: #111827;
+}
+
+.summary-card.accent .summary-value { color: #2563eb; }
+
+/* ─ Filters ─ */
+.search-filter-row {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+}
+
+.search-wrapper {
+    flex: 1;
+    min-width: 200px;
+    display: flex;
+    align-items: center;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 0 0.9rem;
+}
+
+.search-wrapper i { color: #9ca3af; }
+
+.search-wrapper:focus-within {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.search-input {
+    flex: 1;
+    padding: 0.6rem 0.5rem;
+    border: none;
+    outline: none;
+    font-size: 0.875rem;
+    background: transparent;
+}
+
+.filter-field {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.filter-field label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #6b7280;
+}
+
+.date-input, .text-filter {
+    padding: 0.5rem 0.7rem;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    font-size: 0.825rem;
+    background: #fff;
+    outline: none;
+    color: #374151;
+}
+
+.date-input:focus, .text-filter:focus { border-color: #3b82f6; }
+.text-filter { min-width: 160px; }
+
+/* ─ Table card ─ */
+.table-card {
+    background: #fff;
+    border-radius: 10px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.07);
+    overflow: hidden;
+}
+
+:host ::ng-deep .ledger-table .p-datatable-thead > tr > th {
+    background: #f9fafb;
+    color: #9ca3af;
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    border: none;
+    border-bottom: 1px solid #e5e7eb;
+    padding: 0.6rem 0.75rem;
+    white-space: nowrap;
+}
+
+:host ::ng-deep .ledger-table .p-datatable-tbody > tr > td {
+    border: none;
+    border-bottom: 1px solid #f3f4f6;
+    padding: 0.65rem 0.75rem;
+    font-size: 0.825rem;
+    color: #374151;
+}
+
+:host ::ng-deep .ledger-table .p-datatable-tbody > tr:hover > td { background: #f9fafb; }
+
+:host ::ng-deep .ledger-table .num,
+.num { text-align: right; }
+
+.strong { font-weight: 700; color: #111827; }
+
+:host ::ng-deep .ledger-table .total-row > td {
+    background: #f9fafb;
+    font-weight: 700;
+    color: #111827;
+    border-top: 2px solid #e5e7eb;
+}
+
+.total-label { text-align: right; text-transform: uppercase; font-size: 0.72rem; color: #6b7280; }
+
+.notes-cell {
+    max-width: 160px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ─ Badges ─ */
+.badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.2rem 0.6rem;
+    border-radius: 20px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.badge-active { background: #dcfce7; color: #16a34a; }
+.badge-low-stock { background: #fef3c7; color: #b45309; }
+.badge-expired { background: #fee2e2; color: #dc2626; }
+.badge-partial { background: #dbeafe; color: #2563eb; }
+
+/* ─ Sticky actions ─ */
+.sticky-col-right {
+    position: sticky;
+    right: 0;
+    background: #fff;
+    z-index: 2;
+    box-shadow: -2px 0 6px rgba(0, 0, 0, 0.05);
+}
+
+:host ::ng-deep .ledger-table .p-datatable-tbody > tr:hover > td.sticky-col-right { background: #f9fafb; }
+
+.actions-cell { display: flex; gap: 0.35rem; }
+
+.action-btn {
+    width: 30px;
+    height: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    background: #fff;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.action-btn:hover { background: #f3f4f6; }
+.action-edit i { color: #22c55e; }
+.action-delete i { color: #dc2626; }
+.action-pay i { color: #2563eb; }
+.action-view i { color: #6b7280; }
+
+/* ─ Empty state ─ */
+.empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 2.5rem 1rem;
+    color: #9ca3af;
+}
+
+.empty-state i { font-size: 2rem; }
+
+/* ─ Dialog form ─ */
+.form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.9rem 1rem;
+    padding: 0.5rem 0;
+}
+
+.form-field { display: flex; flex-direction: column; gap: 0.3rem; }
+.form-field.span-2 { grid-column: span 2; }
+
+.form-field label {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #374151;
+}
+
+.req { color: #dc2626; }
+
+.form-input {
+    padding: 0.55rem 0.7rem;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    outline: none;
+    background: #fff;
+    color: #111827;
+    font-family: inherit;
+}
+
+.form-input:focus {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.form-input.readonly { background: #f3f4f6; color: #6b7280; font-weight: 600; }
+
+:host ::ng-deep .full-dropdown { width: 100%; }
+
+/* ─ Responsive ─ */
+@media (max-width: 900px) {
+    .main-content { margin-left: 0; padding: 1rem; }
+    .form-grid { grid-template-columns: 1fr; }
+    .form-field.span-2 { grid-column: span 1; }
+}
