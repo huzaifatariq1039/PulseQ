@@ -650,9 +650,28 @@ async def receptionist_dashboard(
             break
             
     doctors = db.query(Doctor).filter(Doctor.hospital_id == hospital_id).all()
+
+    # Doctors with an active in-consultation token are effectively "busy",
+    # even if their stored status still reads "offline"/stale.
+    doctor_ids = [d.id for d in doctors]
+    consulting_doctor_ids: set = set()
+    if doctor_ids:
+        consulting_rows = (
+            db.query(Token.doctor_id)
+            .filter(
+                Token.doctor_id.in_(doctor_ids),
+                func.lower(func.coalesce(Token.status, "")) == "in_consultation",
+            )
+            .distinct()
+            .all()
+        )
+        consulting_doctor_ids = {r[0] for r in consulting_rows}
+
     active_doctors = []
     for d in doctors:
         status_val = str(getattr(d, 'status', 'available') or 'available').lower()
+        if d.id in consulting_doctor_ids:
+            status_val = "busy"
         if status_val in ("available", "busy"):
             active_doctors.append({
                 "doctor_id": d.id,

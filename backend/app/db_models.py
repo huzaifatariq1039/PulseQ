@@ -654,6 +654,9 @@ class Prescription(Base):
     # List of {name, generic_name, dosage, instructions, in_stock, quantity_available}
     medicines = Column(JSON, default=list)
     notes = Column(Text, nullable=True)
+    dispense_status = Column(String(20), default="pending", index=True)
+    dispensed_at = Column(DateTime(timezone=True), nullable=True)
+    dispensed_by = Column(String, ForeignKey("users.id"), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     def to_dict(self) -> dict:
@@ -665,6 +668,9 @@ class Prescription(Base):
             "hospital_id": self.hospital_id,
             "medicines": self.medicines or [],
             "notes": self.notes,
+            "dispense_status": self.dispense_status or "pending",
+            "dispensed_at": self.dispensed_at.isoformat() if self.dispensed_at else None,
+            "dispensed_by": self.dispensed_by,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 

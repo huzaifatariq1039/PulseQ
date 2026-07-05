@@ -9,8 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status, Header
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
-from sqlalchemy import func, or_, case, literal_column
-from app.db_models import PharmacyMedicine, PharmacySale
+from sqlalchemy import func, or_, case, literal_column, String as SQLString
+from app.db_models import PharmacyMedicine, PharmacySale, Prescription, Token, User, Doctor
 from db_automation.services import PharmacyInvoiceService
 
 from app.security import get_current_active_user
@@ -68,6 +68,10 @@ class DispenseMedicineRequest(BaseModel):
     patient_id: str
     doctor_id: str
     medicines: List[DispenseMedicineItem]
+
+
+class PrescriptionStatusUpdateRequest(BaseModel):
+    status: str = Field(..., description="pending | completed")
 
 def _normalize_date_str(v: Optional[str]) -> Optional[str]:
     if not v: return None
@@ -699,6 +703,114 @@ async def dispense_medicine(
         if isinstance(e, HTTPException): raise e
         logger.exception("Dispense failed")
         raise HTTPException(status_code=500, detail="Dispense failed")
+
+
+@router.get("/prescriptions", dependencies=[Depends(require_roles("pharmacy", "admin"))])
+async def list_prescriptions(
+    status: str = Query("pending", description="pending | completed | all"),
+    department: Optional[str] = Query(None, description="Doctor department/specialization"),
+    doctor_id: Optional[str] = Query(None, description="Doctor ID"),
+    search: Optional[str] = Query(None, description="Search by patient name or token number"),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    current: TokenData = Depends(get_current_active_user),
+) -> Dict[str, Any]:
+    status_val = str(status or "pending").strip().lower()
+    if status_val not in {"pending", "completed", "all"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid status. Use pending, completed, or all")
+
+    query = (
+        db.query(Prescription, Token, Doctor, User)
+        .outerjoin(Token, Token.id == Prescription.token_id)
+        .outerjoin(Doctor, Doctor.id == Prescription.doctor_id)
+        .outerjoin(User, User.id == Prescription.patient_id)
+    )
+
+    if current.hospital_id:
+        query = query.filter(Prescription.hospital_id == current.hospital_id)
+
+    if status_val != "all":
+        query = query.filter(func.lower(func.coalesce(Prescription.dispense_status, "pending")) == status_val)
+
+    if doctor_id:
+        query = query.filter(Prescription.doctor_id == doctor_id)
+
+    if department:
+        dep = str(department).strip().lower()
+        if dep:
+            query = query.filter(func.lower(func.coalesce(Doctor.specialization, "")) == dep)
+
+    if search:
+        q = str(search).strip()
+        if q:
+            like = f"%{q}%"
+            query = query.filter(or_(
+                func.coalesce(Token.patient_name, "").ilike(like),
+                func.coalesce(User.name, "").ilike(like),
+                func.cast(func.coalesce(Token.token_number, 0), SQLString).ilike(like),
+            ))
+
+    rows = query.order_by(Prescription.created_at.desc()).limit(limit).all()
+
+    data: List[Dict[str, Any]] = []
+    for prescription, token, doctor, patient_user in rows:
+        token_patient_name = getattr(token, "patient_name", None) if token else None
+        patient_name = token_patient_name or (getattr(patient_user, "name", None) if patient_user else None)
+        doctor_name = getattr(doctor, "name", None) if doctor else None
+        token_number = getattr(token, "token_number", None) if token else None
+        department_name = (getattr(doctor, "specialization", None) if doctor else None) or (getattr(token, "department", None) if token else None)
+
+        data.append({
+            "id": prescription.id,
+            "token_id": prescription.token_id,
+            "token_number": token_number,
+            "doctor_id": prescription.doctor_id,
+            "doctor_name": doctor_name,
+            "department": department_name,
+            "patient_id": prescription.patient_id,
+            "patient_name": patient_name,
+            "hospital_id": prescription.hospital_id,
+            "medicines": prescription.medicines or [],
+            "notes": prescription.notes,
+            "dispense_status": prescription.dispense_status or "pending",
+            "dispensed_at": prescription.dispensed_at.isoformat() if prescription.dispensed_at else None,
+            "dispensed_by": prescription.dispensed_by,
+            "created_at": prescription.created_at.isoformat() if prescription.created_at else None,
+        })
+
+    return ok(data=data)
+
+
+@router.patch("/prescriptions/{prescription_id}/status", dependencies=[Depends(require_roles("pharmacy", "admin"))])
+async def update_prescription_status(
+    prescription_id: str,
+    payload: PrescriptionStatusUpdateRequest,
+    db: Session = Depends(get_db),
+    current: TokenData = Depends(get_current_active_user),
+) -> Dict[str, Any]:
+    row = db.query(Prescription).filter(Prescription.id == prescription_id).first()
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Prescription not found")
+
+    if current.hospital_id and row.hospital_id and str(row.hospital_id) != str(current.hospital_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
+    status_val = str(payload.status or "").strip().lower()
+    if status_val not in {"pending", "completed"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid status. Use pending or completed")
+
+    row.dispense_status = status_val
+    if status_val == "completed":
+        row.dispensed_at = datetime.utcnow()
+        row.dispensed_by = current.user_id
+    else:
+        row.dispensed_at = None
+        row.dispensed_by = None
+
+    db.commit()
+    db.refresh(row)
+
+    return ok(data=row.to_dict(), message=f"Prescription marked as {status_val}")
     
 
 @router.post("/add-medicine", dependencies=[Depends(require_roles("pharmacy", "admin"))])
@@ -1118,47 +1230,12 @@ async def create_invoice(
                 performed_by=getattr(current, "user_id", None),
             )
             db.add(sale)
-
-            # Deduct quantity from pharmacy inventory
-            qty_sold = int(item.quantity or 1)
-            med = None
-
-            # Try matching by product_id first
-            if item.product_id:
-                med = db.query(PharmacyMedicine).filter(
-                    PharmacyMedicine.product_id == item.product_id,
-                    PharmacyMedicine.hospital_id == getattr(current, "hospital_id", None),
-                    PharmacyMedicine.is_deleted.isnot(True)
-                ).first()
-
-            # Fallback: match by name if product_id not found
-            if not med and item.product_name:
-                med = db.query(PharmacyMedicine).filter(
-                    PharmacyMedicine.name.ilike(item.product_name.strip()),
-                    PharmacyMedicine.hospital_id == getattr(current, "hospital_id", None),
-                    PharmacyMedicine.is_deleted.isnot(True)
-                ).first()
-
-            if med:
-                if med.quantity < qty_sold:
-                    logger.warning(
-                        f"Invoice {invoice.id}: insufficient stock for '{item.product_name}' "
-                        f"(available: {med.quantity}, requested: {qty_sold}). "
-                        f"Deducting to 0."
-                    )
-                med.quantity = max(0, (med.quantity or 0) - qty_sold)
-                med.updated_at = datetime.utcnow()
-            else:
-                logger.warning(
-                    f"Invoice {invoice.id}: medicine '{item.product_name}' "
-                    f"(product_id={item.product_id}) not found in inventory — "
-                    f"quantity not deducted."
-                )
-
         db.commit()
     except Exception as e:
-        logger.warning(f"Failed to record pharmacy sales/inventory update for invoice {invoice.id}: {e}")
+        logger.warning(f"Failed to record pharmacy sales for invoice {invoice.id}: {e}")
         db.rollback()
+
+    return ok(data=data, message="Invoice created successfully")
 
 
 # ── PUT /invoices/{invoice_id} ────────────────────────────────────────────────

@@ -3,13 +3,13 @@ from typing import List, Optional, Dict, Any
 from app.models import DoctorCreate, DoctorResponse, DoctorSearchResponse, DoctorWithQueue, QueueStatus
 from app.database import get_db, get_db_session
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from app.db_models import Doctor, Hospital, User, Queue as DBQueue, Department, Token, Refund
 from app.security import get_current_active_user, require_roles, get_password_hash
 from app.utils.responses import ok
 from datetime import datetime, timezone, time
 import random
 import logging
-from sqlalchemy import func
 from app.services.cache_service import CacheService, cached
 
 # FIX 4: Split into two routers — public (read-only) and staff (write + auth-gated)
@@ -168,30 +168,8 @@ def _normalize_time_to_hhmm(s: Optional[str]) -> Optional[str]:
         return None
     except Exception:
         return None
-    
-def _validate_pakistan_phone(phone: str) -> str:
-    """
-    Validates and normalizes Pakistan phone numbers.
-    Accepts: +923311234567 or 03311234567
-    Returns: normalized number or raises HTTPException
-    """
-    if not phone:
-        return phone
-    
-    p = str(phone).strip().replace(" ", "").replace("-", "")
-    
-    # Format 1: +92XXXXXXXXXX (13 chars)
-    if p.startswith("+92") and len(p) == 13 and p[3:].isdigit():
-        return p
-    
-    # Format 2: 03XXXXXXXXX (11 chars)
-    if p.startswith("0") and len(p) == 11 and p.isdigit():
-        return p
-    
-    raise HTTPException(
-        status_code=status.HTTP_400_BAD_REQUEST,
-        detail=f"Invalid phone number '{phone}'. Must be in Pakistan format: +923311234567 or 03311234567"
-    )
+
+
 # ---------------------------------------------------------------------------
 # FIX 3: Static/specific routes FIRST, dynamic /{doctor_id} routes LAST
 # ---------------------------------------------------------------------------
@@ -271,9 +249,27 @@ async def receptionist_manage_doctors(
         .all()
     )
 
+    # A doctor with an active in-consultation token is effectively "busy",
+    # regardless of the stored status field (which may lag behind or be stale).
+    doctor_ids = [d.id for d in doctors]
+    consulting_doctor_ids: set = set()
+    if doctor_ids:
+        consulting_rows = (
+            db.query(Token.doctor_id)
+            .filter(
+                Token.doctor_id.in_(doctor_ids),
+                func.lower(func.coalesce(Token.status, "")) == "in_consultation",
+            )
+            .distinct()
+            .all()
+        )
+        consulting_doctor_ids = {r[0] for r in consulting_rows}
+
     out: List[Dict[str, Any]] = []
     for doctor in doctors:
         it = {k: v for k, v in doctor.__dict__.items() if not k.startswith('_')}
+        stored_status = str(it.get("status") or "available").lower()
+        effective_status = "busy" if it.get("id") in consulting_doctor_ids else stored_status
         start_fmt = _fmt_time_12h(it.get("start_time"))
         end_fmt = _fmt_time_12h(it.get("end_time"))
         timings = f"{start_fmt} - {end_fmt}" if start_fmt and end_fmt else None
@@ -294,7 +290,7 @@ async def receptionist_manage_doctors(
             "end_time": it.get("end_time"),
             "available_days": it.get("available_days") or [],
             "timings": timings,
-            "status": str(it.get("status") or "available").lower(),
+            "status": effective_status,
             "hospital_id": it.get("hospital_id"),
         })
     return {"success": True, "data": out, "meta": {"page": page, "page_size": page_size, "total": total}}
@@ -375,12 +371,29 @@ async def get_departments_list(
     hospital_id = getattr(current_user, "hospital_id", None)
     if not hospital_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No hospital associated with this account")
-    query = db.query(Department).filter(Department.hospital_id == hospital_id)
-
-    departments = query.order_by(Department.name.asc()).all()
+    departments = (
+        db.query(
+            Department,
+            func.count(Doctor.id).label("doctor_count"),
+        )
+        .outerjoin(
+            Doctor,
+            (Doctor.specialization == Department.name) & (Doctor.hospital_id == Department.hospital_id),
+        )
+        .filter(Department.hospital_id == hospital_id)
+        .group_by(Department.id)
+        .order_by(Department.name.asc())
+        .all()
+    )
     return ok(data=[
-        {"id": d.id, "name": d.name, "hospital_id": d.hospital_id, "created_at": d.created_at}
-        for d in departments
+        {
+            "id": department.id,
+            "name": department.name,
+            "hospital_id": department.hospital_id,
+            "created_at": department.created_at,
+            "doctor_count": int(doctor_count or 0),
+        }
+        for department, doctor_count in departments
     ])
 
 
@@ -460,45 +473,16 @@ async def create_doctor(
     if not doctor.hospital_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No hospital associated with this account")
 
-    # Check email uniqueness across ALL doctors (not just same hospital)
-    # Validate phone format first
-    if doctor.phone:
-        doctor.phone = _validate_pakistan_phone(doctor.phone)
+    existing_doctor = db.query(Doctor).filter(
+        Doctor.email == doctor.email, Doctor.hospital_id == doctor.hospital_id
+    ).first()
 
-    # Check email uniqueness across ALL doctors (not just same hospital)
-    # Check email uniqueness — check both doctors table AND users table
-    if doctor.email:
-        # Check doctors table directly
-        existing_doctor_email = db.query(Doctor).filter(
-            Doctor.email == doctor.email
-        ).first()
-        if existing_doctor_email:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"A doctor with email {doctor.email} already exists. Use a different email.",
-            )
+    if existing_doctor:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Doctor with this email already exists in this hospital",
+        )
 
-        # Also check users table (doctor login accounts stored here)
-        existing_user_email = db.query(User).filter(
-            func.lower(User.email) == doctor.email.lower()
-        ).first()
-        if existing_user_email:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"A user account with email {doctor.email} already exists. Use a different email.",
-            )
-
-    # Check phone uniqueness across ALL doctors
-    if doctor.phone:
-        existing_doctor_phone = db.query(Doctor).filter(
-            Doctor.phone == doctor.phone
-        ).first()
-        if existing_doctor_phone:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"A doctor with phone {doctor.phone} already exists. Use a different phone number.",
-            )
-        
     import uuid
     doctor_data = doctor.dict(exclude_none=True)
         
@@ -1045,9 +1029,6 @@ async def receptionist_update_doctor(
         "qualification", "degrees", "patients_per_day", "status",
     }
     update: Dict[str, Any] = {k: v for k, v in (payload or {}).items() if k in allowed}
-
-    if "phone" in update and update["phone"]:
-        update["phone"] = _validate_pakistan_phone(update["phone"])
 
     if "fee" in update and "consultation_fee" not in update:
         update["consultation_fee"] = update.get("fee")
