@@ -949,13 +949,13 @@ async def receptionist_create_walkin_token(
             await send_template_message(
                 phone=_normalize_phone(phone),
                 template_name="token_number",  # ← replace with your actual template name
-                params=[
-                    doctor.name,                  # {doctor_name}
-                    patient_name,                 # {name}
-                    hospital_name_str,            # {hospital_name}
-                    str(room_number),             # {room_number}
-                    str(estimated_wait_time),     # {wait_time}
-                ]
+                    params=[
+                            doctor.name,                        # {1} doctor_name
+                            patient_name,                       # {2} name  
+                            hospital_name_str,                  # {3} hospital_name
+                            doctor.specialization or "General", # {4} department ✅
+                            str(estimated_wait_time),           # {5} wait_time
+                    ]
             )
             logger.info(f"WhatsApp walk-in confirmation sent to {phone} for token {token_id}")
         except Exception as e:
@@ -972,7 +972,7 @@ async def receptionist_create_walkin_token(
             "token_id": token_id,
             "token_number": display_code,
             "hospital_name": hospital_name_str,
-            "department": reason,
+            "department": doctor.specialization,
             "doctor_name": doctor.name,
             "patient_name": patient_name,
             "phone": phone,
