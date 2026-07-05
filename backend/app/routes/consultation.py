@@ -330,39 +330,48 @@ async def consultation_end(
     doctor.status = "available"
     doctor.updated_at = now
 
-    # Save prescribed medicines (if any) as a Prescription record for this token.
+    # Clean prescribed medicines (if any) so we can persist them below.
     medicines = (payload or {}).get("medicines")
+    cleaned: List[Dict[str, Any]] = []
     if isinstance(medicines, list) and medicines:
-        try:
-            cleaned: List[Dict[str, Any]] = []
-            for m in medicines:
-                if not isinstance(m, dict):
-                    continue
-                name = str(m.get("name") or "").strip()
-                if not name:
-                    continue
-                cleaned.append({
-                    "name": name,
-                    "generic_name": (m.get("generic_name") or None),
-                    "dosage": (str(m.get("dosage")).strip() or None) if m.get("dosage") else None,
-                    "instructions": (str(m.get("instructions")).strip() or None) if m.get("instructions") else None,
-                    "in_stock": bool(m.get("in_stock")),
-                    "quantity_available": m.get("quantity_available"),
-                })
-            if cleaned:
-                db.add(Prescription(
-                    id=str(uuid.uuid4()),
-                    token_id=token.id,
-                    doctor_id=doctor.id,
-                    patient_id=token.patient_id,
-                    hospital_id=token.hospital_id,
-                    medicines=cleaned,
-                    notes=consultation_notes,
-                ))
-        except Exception:
-            logger.exception("Failed to save prescription for token %s", token_id)
+        for m in medicines:
+            if not isinstance(m, dict):
+                continue
+            name = str(m.get("name") or "").strip()
+            if not name:
+                continue
+            cleaned.append({
+                "name": name,
+                "generic_name": (m.get("generic_name") or None),
+                "dosage": (str(m.get("dosage")).strip() or None) if m.get("dosage") else None,
+                "instructions": (str(m.get("instructions")).strip() or None) if m.get("instructions") else None,
+                "in_stock": bool(m.get("in_stock")),
+                "quantity_available": m.get("quantity_available"),
+            })
 
+    # Commit the core consultation completion first. This MUST succeed on its own,
+    # independent of whether the prescription can be saved — otherwise a problem
+    # with the prescriptions table (e.g. a pending DB migration) would roll back
+    # the whole visit and surface as a "fetch error" on the doctor's screen.
     db.commit()
+
+    # Persist the prescription in a separate transaction so any failure here is
+    # isolated and never breaks the already-committed consultation.
+    if cleaned:
+        try:
+            db.add(Prescription(
+                id=str(uuid.uuid4()),
+                token_id=token.id,
+                doctor_id=doctor.id,
+                patient_id=token.patient_id,
+                hospital_id=token.hospital_id,
+                medicines=cleaned,
+                notes=consultation_notes,
+            ))
+            db.commit()
+        except Exception:
+            db.rollback()
+            logger.exception("Failed to save prescription for token %s", token_id)
 
     # Send WhatsApp thank you message after consultation completion
     if token.patient_phone:
