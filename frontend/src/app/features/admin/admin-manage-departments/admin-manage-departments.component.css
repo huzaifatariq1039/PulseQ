@@ -241,6 +241,14 @@
     font-size: 0.75rem;
 }
 
+.stat-item.warning {
+    color: #b45309;
+}
+
+.stat-item.warning i {
+    color: #f59e0b;
+}
+
 /* ─── Empty State ────────────────────────────────────────────────────────── */
 .empty-state {
     grid-column: 1 / -1;

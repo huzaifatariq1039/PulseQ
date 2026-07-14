@@ -103,84 +103,23 @@ class RealTimeConnectionManager:
             logger.error(f"Failed to broadcast to room {room}: {e}")
 
     async def _listen_redis_channel(self, room: str, pubsub: PubSub) -> None:
-        """Background task: listen to Redis channel and relay messages to local connections.
-
-        Hardened against dropped Redis connections (Upstash serverless idle
-        timeout, network blips). If the subscription dies, it auto-resubscribes
-        with backoff instead of silently leaving the room without a listener
-        until a fresh client happens to connect.
-        """
-        channel = f"room:{room}"
-        current_pubsub = pubsub
-        attempt = 0
-
-        while True:
-            try:
-                async for message in current_pubsub.listen():
-                    if message.get("type") == "message":
-                        # Decode JSON and relay to all local WebSocket connections
-                        try:
-                            payload = json.loads(message["data"])
-                            await self._send_to_local_connections(room, payload)
-                        except json.JSONDecodeError as e:
-                            logger.error(f"Invalid JSON from Redis channel {channel}: {e}")
-                        except Exception as e:
-                            logger.error(f"Error relaying message in {channel}: {e}")
-                # A healthy subscription never returns normally, but if it does
-                # (e.g. channel closed), break out and let cleanup happen.
-                break
-
-            except asyncio.CancelledError:
-                # Task cancelled on room cleanup — exit cleanly.
-                raise
-
-            except Exception as e:
-                logger.warning(
-                    f"Redis listener for {channel} dropped (attempt {attempt + 1}): {e}"
-                )
-                attempt += 1
-
-                # Close the dead pubsub if possible, then re-create a fresh
-                # subscription so the room keeps receiving broadcasts.
-                try:
-                    await self.redis_service.close_pubsub(current_pubsub)
-                except Exception:
-                    pass
-
-                try:
-                    new_pubsub = await self.redis_service.subscribe(channel)
-                    # Re-point the manager's tracked pubsub; keeping an entry here
-                    # also prevents a concurrent connect() from spawning a
-                    # duplicate listener while we retry.
-                    self.subscriptions[room] = new_pubsub
-                    current_pubsub = new_pubsub
-                    logger.info(f"Re-subscribed Redis channel {channel} after drop")
-                    attempt = 0
-                except Exception as sub_err:
-                    # Redis still unavailable — back off before retrying so we
-                    # don't hot-loop against an unreachable server.
-                    backoff = min(2 ** attempt, 30)
-                    logger.warning(
-                        f"Redis re-subscribe for {channel} failed, retrying in {backoff}s: {sub_err}"
-                    )
-                    try:
-                        await asyncio.sleep(backoff)
-                    except asyncio.CancelledError:
-                        raise
-
-    async def broadcast(self, room: str, message: dict) -> None:
-        """Deliver a message to a room's clients.
-
-        Sends directly to locally-connected clients (works even without Redis,
-        e.g. in local dev) AND publishes to Redis so other server instances relay
-        it to their own clients. Clients treat these as idempotent refresh signals,
-        so an occasional duplicate on the same instance is harmless.
-        """
+        """Background task: listen to Redis channel and relay messages to local connections."""
         try:
-            await self._send_to_local_connections(room, message)
+            async for message in pubsub.listen():
+                if message["type"] == "message":
+                    # Decode JSON and relay to all local WebSocket connections
+                    try:
+                        payload = json.loads(message["data"])
+                        await self._send_to_local_connections(room, payload)
+                    except json.JSONDecodeError as e:
+                        logger.error(f"Invalid JSON from Redis channel room:{room}: {e}")
+                    except Exception as e:
+                        logger.error(f"Error relaying message in room {room}: {e}")
+        except asyncio.CancelledError:
+            # Task was cancelled (room cleanup)
+            pass
         except Exception as e:
-            logger.debug(f"Local broadcast to {room} failed: {e}")
-        await self.broadcast_via_redis(room, message)
+            logger.error(f"Redis listener for room {room} failed: {e}")
 
     async def broadcast(self, room: str, message: dict) -> None:
         """Deliver a message to a room's clients.

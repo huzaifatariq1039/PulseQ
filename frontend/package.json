@@ -4,7 +4,14 @@
   "scripts": {
     "ng": "ng",
     "start": "ng serve --proxy-config proxy.conf.json",
-    "build": "ng build --configuration=production",
+    "build": "ng build --configuration=production && npm run copy:htaccess",
+    "build:patient": "ng build --configuration=patient && npm run copy:htaccess",
+    "build:doctor": "ng build --configuration=doctor && npm run copy:htaccess",
+    "build:pharmacy": "ng build --configuration=pharmacy && npm run copy:htaccess",
+    "build:reception": "ng build --configuration=reception && npm run copy:htaccess",
+    "build:admin": "ng build --configuration=admin && npm run copy:htaccess",
+    "build:main": "ng build --configuration=main && npm run copy:htaccess",
+    "copy:htaccess": "node scripts/copy-htaccess.mjs",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
     "serve:ssr:pulseQ": "node dist/pulse-q/server/server.mjs"

@@ -33,3 +33,30 @@ export function patientPath(path: string): string {
     const clean = path.startsWith('/') ? path.slice(1) : path;
     return `${base}/${clean}`;
 }
+
+/**
+ * Build a router link for an admin page. Same idea as pharmacyPath: on the admin
+ * subdomain the routes sit at the domain root (bare, e.g. "/manage-doctors"),
+ * otherwise (main/dev and SSR) they're nested in mainRoutes under "/staff/admin".
+ * Using detectPortal() keeps these links consistent with the route table that's
+ * actually registered, so hard-coded "/staff/admin/..." links no longer fall
+ * through to the "**" wildcard (which bounces the user back to the dashboard).
+ */
+export function adminPath(path: string): string {
+    const base = detectPortal() === 'admin' ? '' : '/staff/admin';
+    const clean = path.startsWith('/') ? path.slice(1) : path;
+    return `${base}/${clean}`;
+}
+
+/**
+ * Build a router link for a doctor page. Same idea as adminPath: on the doctor
+ * subdomain the routes sit at the domain root (bare, e.g. "/ratings"), otherwise
+ * (main/dev and SSR) they're nested in mainRoutes under "/staff/doctor". Using
+ * detectPortal() keeps these links consistent with the registered route table so
+ * hard-coded "/staff/doctor/..." links no longer fall through to the "**" wildcard.
+ */
+export function doctorPath(path: string): string {
+    const base = detectPortal() === 'doctor' ? '' : '/staff/doctor';
+    const clean = path.startsWith('/') ? path.slice(1) : path;
+    return `${base}/${clean}`;
+}

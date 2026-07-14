@@ -1,7 +1,9 @@
-import { ChangeDetectionStrategy, ChangeDetectorRef, Component, OnInit } from '@angular/core';
+import { ChangeDetectionStrategy, ChangeDetectorRef, Component, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, ActivatedRoute, RouterModule } from '@angular/router';
 import { AdminSidebarComponent } from '../shared/components/admin-sidebar/admin-sidebar.component';
+import { Subject } from 'rxjs';
+import { takeUntil } from 'rxjs/operators';
 
 // PrimeNG
 import { CardModule } from 'primeng/card';
@@ -11,6 +13,7 @@ import { ToastModule } from 'primeng/toast';
 // Services
 import { StaffPortalService } from '../../../core/services/staff-portal.service';
 import { AuthService } from '../../../core/services/auth.service';
+import { RealtimeService } from '../../../core/services/realtime.service';
 
 /**
  * AdminDashboardComponent - Displays system overview and metrics
@@ -34,7 +37,7 @@ import { AuthService } from '../../../core/services/auth.service';
   templateUrl: './admin-dashboard.component.html',
   styleUrl: './admin-dashboard.component.css'
 })
-export class AdminDashboardComponent implements OnInit {
+export class AdminDashboardComponent implements OnInit, OnDestroy {
   // Dashboard Metrics
   metrics = [
     { label: 'Total Patients Today', value: '0', icon: 'pi-users', bgColor: '#e0f2fe', iconColor: '#3b82f6', note: 'Patients' },
@@ -50,17 +53,42 @@ export class AdminDashboardComponent implements OnInit {
   // System Logs
   logEntries: { message: string; time: string }[] = [];
 
+  private destroy$ = new Subject<void>();
+
   constructor(
     public router: Router,
     private activatedRoute: ActivatedRoute,
     private staffService: StaffPortalService,
     private authService: AuthService,
+    private realtimeService: RealtimeService,
     private cdr: ChangeDetectorRef
   ) { }
 
   ngOnInit(): void {
     this.initChart();
     this.fetchDashboardData();
+
+    // Real-time sync: refresh dashboard on queue/queue-update events from any portal
+    const hospitalId = this.getHospitalId();
+    if (hospitalId) {
+      this.realtimeService.connect(`hospital_${hospitalId}`)
+        .pipe(takeUntil(this.destroy$))
+        .subscribe((message: any) => {
+          if (message?.type && message.type !== 'ack') {
+            this.fetchDashboardData();
+          }
+        });
+    }
+  }
+
+  ngOnDestroy(): void {
+    this.destroy$.next();
+    this.destroy$.complete();
+  }
+
+  private getHospitalId(): string {
+    const user: any = this.authService.getCurrentUser();
+    return user?.hospitalId || user?.hospital_id || '';
   }
 
   // ─────────────────────────────────────────────────────────────

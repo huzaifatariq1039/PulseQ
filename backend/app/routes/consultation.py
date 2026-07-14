@@ -329,23 +329,36 @@ async def consultation_end(
     
     doctor.status = "available"
     doctor.updated_at = now
-    
-    db.commit()
 
-    # Persist the prescription in a separate transaction so any failure here is
-    # isolated and never breaks the already-committed consultation.
-    if cleaned:
+    # Save prescribed medicines (if any) as a Prescription record for this token.
+    medicines = (payload or {}).get("medicines")
+    if isinstance(medicines, list) and medicines:
         try:
-            db.add(Prescription(
-                id=str(uuid.uuid4()),
-                token_id=token.id,
-                doctor_id=doctor.id,
-                patient_id=token.patient_id,
-                hospital_id=token.hospital_id,
-                medicines=cleaned,
-                notes=consultation_notes,
-            ))
-            db.commit()
+            cleaned: List[Dict[str, Any]] = []
+            for m in medicines:
+                if not isinstance(m, dict):
+                    continue
+                name = str(m.get("name") or "").strip()
+                if not name:
+                    continue
+                cleaned.append({
+                    "name": name,
+                    "generic_name": (m.get("generic_name") or None),
+                    "dosage": (str(m.get("dosage")).strip() or None) if m.get("dosage") else None,
+                    "instructions": (str(m.get("instructions")).strip() or None) if m.get("instructions") else None,
+                    "in_stock": bool(m.get("in_stock")),
+                    "quantity_available": m.get("quantity_available"),
+                })
+            if cleaned:
+                db.add(Prescription(
+                    id=str(uuid.uuid4()),
+                    token_id=token.id,
+                    doctor_id=doctor.id,
+                    patient_id=token.patient_id,
+                    hospital_id=token.hospital_id,
+                    medicines=cleaned,
+                    notes=consultation_notes,
+                ))
         except Exception:
             db.rollback()
             logger.exception("Failed to save prescription for token %s", token_id)
@@ -489,6 +502,21 @@ async def re_add_skipped_patient(
         )
 
     now = datetime.utcnow()
+    today = now.date()
+
+    # Re-add the patient at the END of the current active queue (a new number
+    # after everyone still waiting), keeping their ticket's letter prefix.
+    max_num = db.query(func.max(Token.token_number)).filter(
+        Token.doctor_id == token.doctor_id,
+        Token.id != token.id,
+        func.date(Token.appointment_date) == today,
+        Token.status.in_(["pending", "waiting", "confirmed", "called", "in_consultation"]),
+    ).scalar() or 0
+    new_num = int(max_num) + 1
+    prefix = "".join(ch for ch in (token.display_code or "A000") if not ch.isdigit()) or "A"
+
+    token.token_number = new_num
+    token.display_code = f"{prefix}{new_num:03d}"
     token.status = "pending"
     token.skip_count = 0  # fresh start: re-added patient gets the full skip cycle again
     token.updated_at = now
@@ -499,6 +527,12 @@ async def re_add_skipped_patient(
 
     try:
         log_action(current_user.user_id, role, action="RE_ADD", token_id=token_id)
+    except Exception:
+        pass
+
+    try:
+        from app.routes.realtime import notify_queue_update
+        await notify_queue_update(token.hospital_id, token.doctor_id)
     except Exception:
         pass
 

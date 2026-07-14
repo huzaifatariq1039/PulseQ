@@ -2,17 +2,19 @@ import { Component, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterModule, Router, ActivatedRoute } from '@angular/router';
 import { Subscription } from 'rxjs';
-import { filter } from 'rxjs/operators';
+import { filter, takeUntil } from 'rxjs/operators';
+import { Subject } from 'rxjs';
 
 import { CardModule } from 'primeng/card';
 import { ButtonModule } from 'primeng/button';
 import { MessageModule } from 'primeng/message';
 import { ToastModule } from 'primeng/toast';
-import { PharmacyService } from '../../../core/services/pharmacy.service';
+import { PharmacyService, PharmacyPrescription } from '../../../core/services/pharmacy.service';
 import { Medicine } from '../../../shared/models/medicine.model';
 import { PharmacySidebarComponent } from '../shared/components/pharmacy-sidebar/pharmacy-sidebar.component';
 import { AuthService } from '../../../core/services/auth.service';
 import { pharmacyPath } from '../../../core/utils/portal-path.util';
+import { RealtimeService } from '../../../core/services/realtime.service';
 
 @Component({
     selector: 'app-pharmacy-dashboard',
@@ -38,19 +40,36 @@ export class PharmacyDashboardComponent implements OnInit, OnDestroy {
     inventoryValue = 0;
 
     medicines: Medicine[] = [];
+    pendingPrescriptions: PharmacyPrescription[] = [];
+    completedPrescriptions: PharmacyPrescription[] = [];
+    selectedPrescriptionTab: 'pending' | 'completed' = 'pending';
+    prescriptionsLoading = false;
     private sub: Subscription | null = null;
 
     constructor(
         private pharmacyService: PharmacyService,
         private authService: AuthService,
         private route: ActivatedRoute,
-        private router: Router
+        private router: Router,
+        private realtimeService: RealtimeService
     ) { }
+
+    private destroy$ = new Subject<void>();
 
     ngOnInit(): void {
 
         const hid =
             (this.authService.getCurrentUser() as any)?.hospitalId || '';
+
+        // Real-time updates for pharmacy queue (new prescriptions, etc.)
+        if (hid) {
+            this.realtimeService.connect(`hospital_${hid}`)
+                .pipe(takeUntil(this.destroy$))
+                .subscribe(() => {
+                    this.loadPrescriptionQueue();
+                    this.pharmacyService.loadMedicinesFromApi(hid);
+                });
+        }
 
         // FIX: Call load FIRST so loading() becomes true immediately.
         // The guard in PharmacyService prevents duplicate concurrent calls
@@ -71,10 +90,14 @@ export class PharmacyDashboardComponent implements OnInit, OnDestroy {
                 this.medicines = meds;
                 this.updateStats();
             });
+
+        this.loadPrescriptionQueue();
     }
 
     ngOnDestroy(): void {
         this.sub?.unsubscribe();
+        this.destroy$.next();
+        this.destroy$.complete();
     }
 
     updateStats(): void {
@@ -124,5 +147,60 @@ export class PharmacyDashboardComponent implements OnInit, OnDestroy {
 
     goToSales(): void {
         this.router.navigate([pharmacyPath('sales')]);
+    }
+
+    get visiblePrescriptions(): PharmacyPrescription[] {
+        return this.selectedPrescriptionTab === 'pending'
+            ? this.pendingPrescriptions
+            : this.completedPrescriptions;
+    }
+
+    loadPrescriptionQueue(): void {
+        this.prescriptionsLoading = true;
+        this.pharmacyService.getPrescriptionQueue('all', 200).subscribe({
+            next: (res: any) => {
+                const rows = Array.isArray(res?.data) ? res.data : [];
+                const all: PharmacyPrescription[] = rows.map((r: any) => ({
+                    id: r.id,
+                    token_id: r.token_id,
+                    doctor_id: r.doctor_id,
+                    doctor_name: r.doctor_name,
+                    patient_id: r.patient_id,
+                    patient_name: r.patient_name,
+                    hospital_id: r.hospital_id,
+                    medicines: Array.isArray(r.medicines) ? r.medicines : [],
+                    notes: r.notes,
+                    dispense_status: (String(r.dispense_status || 'pending').toLowerCase() === 'completed' ? 'completed' : 'pending'),
+                    dispensed_at: r.dispensed_at,
+                    dispensed_by: r.dispensed_by,
+                    created_at: r.created_at,
+                }));
+
+                this.pendingPrescriptions = all.filter(p => p.dispense_status === 'pending');
+                this.completedPrescriptions = all.filter(p => p.dispense_status === 'completed');
+                this.prescriptionsLoading = false;
+            },
+            error: () => {
+                this.pendingPrescriptions = [];
+                this.completedPrescriptions = [];
+                this.prescriptionsLoading = false;
+            }
+        });
+    }
+
+    setPrescriptionTab(tab: 'pending' | 'completed'): void {
+        this.selectedPrescriptionTab = tab;
+    }
+
+    markPrescriptionStatus(p: PharmacyPrescription, nextStatus: 'pending' | 'completed'): void {
+        this.pharmacyService.updatePrescriptionStatus(p.id, nextStatus).subscribe({
+            next: () => this.loadPrescriptionQueue(),
+            error: () => { }
+        });
+    }
+
+    getMedicineNames(p: PharmacyPrescription): string {
+        if (!Array.isArray(p.medicines) || p.medicines.length === 0) return '—';
+        return p.medicines.map(m => m?.name).filter(Boolean).join(', ');
     }
 }

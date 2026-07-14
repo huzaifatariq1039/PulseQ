@@ -23,8 +23,8 @@ import { CommonModule } from '@angular/common';
           <i class="pi pi-star-fill"></i>
         </button>
       </div>
-      <div *ngIf="interactive && hoverRating" class="rating-label">
-        {{ getRatingLabel(hoverRating) }}
+      <div *ngIf="interactive" class="rating-label">
+        {{ hoverRating ? getRatingLabel(hoverRating) : (selectedRating ? getRatingLabel(selectedRating) : '') }}
       </div>
       <div *ngIf="!interactive && selectedRating" class="rating-display">
         <span class="rating-value">{{ selectedRating }}.0</span>

@@ -1,0 +1,126 @@
+<div class="layout">
+  <app-pharmacy-sidebar></app-pharmacy-sidebar>
+
+  <main class="main-content">
+    <div class="page-header">
+      <h1>Prescriptions</h1>
+      <p class="subtitle">Department → Doctor → Patients with direct search by name or token number</p>
+    </div>
+
+    <div class="filters-card">
+      <div class="filter-group">
+        <label>Department</label>
+        <select [(ngModel)]="selectedDepartment" (change)="onDepartmentChange()">
+          <option value="">All Departments</option>
+          <option *ngFor="let d of departments" [value]="d">{{ d }}</option>
+        </select>
+      </div>
+
+      <div class="filter-group">
+        <label>Doctor</label>
+        <select [(ngModel)]="selectedDoctorId">
+          <option value="">All Doctors</option>
+          <option *ngFor="let d of filteredDoctors" [value]="d.id">{{ d.name }}</option>
+        </select>
+      </div>
+
+      <div class="filter-group search-group">
+        <label>Search</label>
+        <input type="text" [(ngModel)]="search" placeholder="Search patient name or token #" />
+      </div>
+
+      <div class="filter-actions">
+        <button pButton type="button" class="p-button-sm p-button-text" icon="pi pi-refresh" label="Refresh"
+          (click)="loadPrescriptions()"></button>
+      </div>
+    </div>
+
+    <div class="table-card">
+      <div class="table-head">
+        <h3>Patients</h3>
+        <span>{{ filteredPrescriptions.length }} records</span>
+      </div>
+
+      <div class="loading" *ngIf="loading">Loading prescriptions...</div>
+
+      <div class="empty" *ngIf="!loading && filteredPrescriptions.length === 0">
+        No prescriptions found for current filters.
+      </div>
+
+      <div class="prescription-list" *ngIf="!loading && filteredPrescriptions.length > 0">
+        <div class="prescription-row" *ngFor="let p of filteredPrescriptions">
+          <div class="row-main">
+            <div class="top-line">
+              <span class="patient">{{ p.patient_name || 'Patient' }}</span>
+              <span class="token">Token #{{ p.token_number || '—' }}</span>
+              <span class="status" [class.completed]="p.dispense_status === 'completed'">
+                <i class="pi" [ngClass]="p.dispense_status === 'completed' ? 'pi-check-circle' : 'pi-clock'"></i>
+                {{ p.dispense_status === 'completed' ? 'Dispensed' : 'Pending' }}
+              </span>
+            </div>
+
+            <div class="meta-grid">
+              <div class="meta-item">
+                <span class="meta-label">Doctor</span>
+                <span class="meta-value">{{ p.doctor_name || '—' }}</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">Department</span>
+                <span class="meta-value">{{ p.department || '—' }}</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">Prescribed</span>
+                <span class="meta-value">{{ p.created_at | date:'medium' }}</span>
+              </div>
+              <div class="meta-item" *ngIf="p.dispense_status === 'completed' && p.dispensed_at">
+                <span class="meta-label">Dispensed</span>
+                <span class="meta-value">{{ p.dispensed_at | date:'medium' }}</span>
+              </div>
+            </div>
+
+            <div class="med-block">
+              <div class="med-block-head">
+                <i class="pi pi-tablets"></i>
+                <span>Prescribed Medicines ({{ medicineCount(p) }})</span>
+              </div>
+
+              <div class="med-empty" *ngIf="medicineCount(p) === 0">No medicines listed for this prescription.</div>
+
+              <div class="med-table" *ngIf="medicineCount(p) > 0">
+                <div class="med-table-head">
+                  <span class="c-name">Medicine</span>
+                  <span class="c-dosage">Dosage</span>
+                  <span class="c-instructions">Instructions</span>
+                  <span class="c-stock">Stock</span>
+                </div>
+                <div class="med-table-row" *ngFor="let m of p.medicines">
+                  <span class="c-name">
+                    <span class="m-name">{{ m.name || '—' }}</span>
+                    <span class="m-generic" *ngIf="m.generic_name">{{ m.generic_name }}</span>
+                  </span>
+                  <span class="c-dosage">{{ m.dosage || '—' }}</span>
+                  <span class="c-instructions">{{ m.instructions || '—' }}</span>
+                  <span class="c-stock">
+                    <span class="stock-pill" [class.in]="m.in_stock" [class.out]="!m.in_stock">
+                      {{ m.in_stock ? 'In stock' : 'Out' }}
+                    </span>
+                    <span class="qty" *ngIf="m.quantity_available != null">Qty: {{ m.quantity_available }}</span>
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div class="note-line" *ngIf="p.notes"><strong>Doctor's notes:</strong> {{ p.notes }}</div>
+          </div>
+
+          <div class="row-actions">
+            <button pButton type="button" class="p-button-sm p-button-success" icon="pi pi-check" label="Mark Dispensed"
+              *ngIf="p.dispense_status !== 'completed'" (click)="markStatus(p, 'completed')"></button>
+            <button pButton type="button" class="p-button-sm p-button-secondary" icon="pi pi-history" label="Mark Pending"
+              *ngIf="p.dispense_status === 'completed'" (click)="markStatus(p, 'pending')"></button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>

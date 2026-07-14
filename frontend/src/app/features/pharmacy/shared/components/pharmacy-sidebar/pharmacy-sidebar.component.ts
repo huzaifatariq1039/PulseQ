@@ -22,6 +22,7 @@ export class PharmacySidebarComponent {
     expensesPath = pharmacyPath('expenses');
     creditsPath = pharmacyPath('credits');
     distributorsPath = pharmacyPath('distributors');
+    prescriptionsPath = pharmacyPath('prescriptions');
 
     constructor(private router: Router, private authService: AuthService) { }
 

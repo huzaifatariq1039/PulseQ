@@ -538,3 +538,198 @@ class PharmacyInvoiceItem(Base):
             "total": self.total,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
+
+
+class PharmacyExpense(Base):
+    """Internal medicine/drip requests demanded by hospital staff (nurses, ward boys)."""
+    __tablename__ = "pharmacy_expenses"
+
+    id = Column(String, primary_key=True, index=True, default=lambda: str(uuid.uuid4()))
+    serial_no = Column(Integer, nullable=True, index=True)  # Per-hospital running serial
+    hospital_id = Column(String, ForeignKey("hospitals.id"), nullable=True, index=True)
+    expense_date = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    demanded_by = Column(String(200), nullable=True)        # Nurse/ward-boy/staff name
+    department = Column(String(200), nullable=True)         # Department / Ward
+    item_name = Column(String(300), nullable=False)         # Medicine / Item Name
+    quantity = Column(Float, nullable=False, default=1)
+    unit_price = Column(Float, nullable=False, default=0.0)
+    total_price = Column(Float, nullable=False, default=0.0)  # quantity * unit_price
+    issued_by = Column(String(200), nullable=True)          # Pharmacist name
+    status = Column(String(20), default="pending", index=True)  # pending/issued/rejected
+    notes = Column(Text, nullable=True)
+    created_by = Column(String, nullable=True)
+    is_deleted = Column(Boolean, default=False, index=True)
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "serial_no": self.serial_no,
+            "hospital_id": self.hospital_id,
+            "expense_date": self.expense_date.isoformat() if self.expense_date else None,
+            "demanded_by": self.demanded_by,
+            "department": self.department,
+            "item_name": self.item_name,
+            "quantity": self.quantity,
+            "unit_price": self.unit_price,
+            "total_price": self.total_price,
+            "issued_by": self.issued_by,
+            "status": self.status,
+            "notes": self.notes,
+            "created_by": self.created_by,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class PharmacyCredit(Base):
+    """Credit sales: medicines given to a known person who pays later (partial allowed)."""
+    __tablename__ = "pharmacy_credits"
+
+    id = Column(String, primary_key=True, index=True, default=lambda: str(uuid.uuid4()))
+    serial_no = Column(Integer, nullable=True, index=True)  # Per-hospital running serial
+    hospital_id = Column(String, ForeignKey("hospitals.id"), nullable=True, index=True)
+    purchase_date = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    customer_name = Column(String(200), nullable=False)
+    contact_number = Column(String(50), nullable=True)
+    item_name = Column(String(300), nullable=False)
+    quantity = Column(Float, nullable=False, default=1)
+    unit_price = Column(Float, nullable=False, default=0.0)
+    total_amount = Column(Float, nullable=False, default=0.0)  # quantity * unit_price
+    amount_paid = Column(Float, nullable=False, default=0.0)
+    balance = Column(Float, nullable=False, default=0.0)       # total_amount - amount_paid
+    due_date = Column(DateTime(timezone=True), nullable=True)
+    status = Column(String(20), default="pending", index=True)  # pending/partially_paid/cleared
+    notes = Column(Text, nullable=True)
+    created_by = Column(String, nullable=True)
+    is_deleted = Column(Boolean, default=False, index=True)
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    payments = relationship(
+        "PharmacyCreditPayment",
+        backref="credit",
+        cascade="all, delete-orphan",
+        order_by="PharmacyCreditPayment.payment_date",
+    )
+
+    def to_dict(self, include_payments: bool = False) -> dict:
+        data = {
+            "id": self.id,
+            "serial_no": self.serial_no,
+            "hospital_id": self.hospital_id,
+            "purchase_date": self.purchase_date.isoformat() if self.purchase_date else None,
+            "customer_name": self.customer_name,
+            "contact_number": self.contact_number,
+            "item_name": self.item_name,
+            "quantity": self.quantity,
+            "unit_price": self.unit_price,
+            "total_amount": self.total_amount,
+            "amount_paid": self.amount_paid,
+            "balance": self.balance,
+            "due_date": self.due_date.isoformat() if self.due_date else None,
+            "status": self.status,
+            "notes": self.notes,
+            "created_by": self.created_by,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+        if include_payments:
+            data["payments"] = [p.to_dict() for p in (self.payments or [])]
+        return data
+
+
+class Prescription(Base):
+    """Medicines prescribed by a doctor during a consultation."""
+    __tablename__ = "prescriptions"
+
+    id = Column(String, primary_key=True, index=True, default=lambda: str(uuid.uuid4()))
+    token_id = Column(String, ForeignKey("tokens.id"), nullable=True, index=True)
+    doctor_id = Column(String, ForeignKey("doctors.id"), nullable=True, index=True)
+    patient_id = Column(String, ForeignKey("users.id"), nullable=True, index=True)
+    hospital_id = Column(String, ForeignKey("hospitals.id"), nullable=True, index=True)
+    # List of {name, generic_name, dosage, instructions, in_stock, quantity_available}
+    medicines = Column(JSON, default=list)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "token_id": self.token_id,
+            "doctor_id": self.doctor_id,
+            "patient_id": self.patient_id,
+            "hospital_id": self.hospital_id,
+            "medicines": self.medicines or [],
+            "notes": self.notes,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class PharmacyDistributor(Base):
+    """Master record of medicine distributors / suppliers for a pharmacy."""
+    __tablename__ = "pharmacy_distributors"
+
+    id = Column(String, primary_key=True, index=True, default=lambda: str(uuid.uuid4()))
+    serial_no = Column(Integer, nullable=True, index=True)  # Per-hospital running serial
+    hospital_id = Column(String, ForeignKey("hospitals.id"), nullable=True, index=True)
+    name = Column(String(200), nullable=False)          # Distributor / contact person
+    company = Column(String(200), nullable=True)         # Company name
+    phone = Column(String(50), nullable=True)
+    email = Column(String(255), nullable=True)
+    address = Column(String(500), nullable=True)
+    city = Column(String(100), nullable=True)
+    status = Column(String(20), default="active", index=True)  # active/inactive
+    notes = Column(Text, nullable=True)
+    created_by = Column(String, nullable=True)
+    is_deleted = Column(Boolean, default=False, index=True)
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "serial_no": self.serial_no,
+            "hospital_id": self.hospital_id,
+            "name": self.name,
+            "company": self.company,
+            "phone": self.phone,
+            "email": self.email,
+            "address": self.address,
+            "city": self.city,
+            "status": self.status,
+            "notes": self.notes,
+            "created_by": self.created_by,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class PharmacyCreditPayment(Base):
+    """A single (possibly partial) payment recorded against a PharmacyCredit entry."""
+    __tablename__ = "pharmacy_credit_payments"
+
+    id = Column(String, primary_key=True, index=True, default=lambda: str(uuid.uuid4()))
+    credit_id = Column(String, ForeignKey("pharmacy_credits.id"), nullable=False, index=True)
+    amount = Column(Float, nullable=False, default=0.0)
+    payment_date = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    payment_method = Column(String(50), nullable=True)
+    notes = Column(Text, nullable=True)
+    created_by = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "credit_id": self.credit_id,
+            "amount": self.amount,
+            "payment_date": self.payment_date.isoformat() if self.payment_date else None,
+            "payment_method": self.payment_method,
+            "notes": self.notes,
+            "created_by": self.created_by,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }

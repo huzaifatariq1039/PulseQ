@@ -1,13 +1,13 @@
 import { Routes } from '@angular/router';
 import { authGuard } from '../core/guards/auth.guard';
+import { PharmacyAuthComponent } from '../features/pharmacy/pharmacy-auth/pharmacy-auth.component';
+import { InventoryComponent } from '../features/pharmacy/inventory/inventory.component';
 
 export const pharmacyRoutes: Routes = [
     { path: '', redirectTo: 'auth', pathMatch: 'full' },
     {
         path: 'auth',
-        loadComponent: () =>
-            import('../features/pharmacy/pharmacy-auth/pharmacy-auth.component')
-                .then(m => m.PharmacyAuthComponent)
+        component: PharmacyAuthComponent
     },
     {
         path: 'dashboard',
@@ -18,9 +18,7 @@ export const pharmacyRoutes: Routes = [
     },
     {
         path: 'inventory',
-        loadComponent: () =>
-            import('../features/pharmacy/inventory/inventory.component')
-                .then(m => m.InventoryComponent),
+        component: InventoryComponent,
         canActivate: [authGuard]
     },
     {
@@ -84,6 +82,13 @@ export const pharmacyRoutes: Routes = [
         loadComponent: () =>
             import('../features/pharmacy/distributors/distributors.component')
                 .then(m => m.DistributorsComponent),
+        canActivate: [authGuard]
+    },
+    {
+        path: 'prescriptions',
+        loadComponent: () =>
+            import('../features/pharmacy/prescriptions/prescriptions.component')
+                .then(m => m.PrescriptionsComponent),
         canActivate: [authGuard]
     },
     {

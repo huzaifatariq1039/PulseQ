@@ -441,12 +441,14 @@ export class AdminManageDoctorsComponent implements OnInit, OnDestroy {
 
     getStatusClass(doctor: Doctor): string {
         if ((doctor as any).onLeave) return 'status-on-leave';
+        if (String((doctor as any).status ?? '').toLowerCase() === 'busy') return 'status-busy';
         if (doctor.available) return 'status-available';
         return 'status-offline';
     }
 
     getStatusText(doctor: Doctor): string {
         if ((doctor as any).onLeave) return 'On Leave';
+        if (String((doctor as any).status ?? '').toLowerCase() === 'busy') return 'In Consultation';
         return doctor.available ? 'Available' : 'Offline';
     }
 }

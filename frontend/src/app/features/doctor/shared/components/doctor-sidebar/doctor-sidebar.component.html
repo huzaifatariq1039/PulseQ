@@ -17,17 +17,17 @@
     </div>
 
     <nav class="sidebar-menu">
-        <a routerLink="/staff/doctor/dashboard" routerLinkActive="active" class="menu-item"
+        <a [routerLink]="dashboardPath" routerLinkActive="active" class="menu-item"
             [routerLinkActiveOptions]="{ exact: true }" (click)="sidebarOpen = false">
             <i class="pi pi-th-large"></i>
             <span>My Dashboard</span>
         </a>
-        <a routerLink="/staff/doctor/ratings" routerLinkActive="active" class="menu-item"
+        <a [routerLink]="ratingsPath" routerLinkActive="active" class="menu-item"
             [routerLinkActiveOptions]="{ exact: false }" (click)="sidebarOpen = false">
             <i class="pi pi-star-fill"></i>
             <span>Patient Ratings</span>
         </a>
-        <a routerLink="/staff/doctor/history" routerLinkActive="active" class="menu-item"
+        <a [routerLink]="historyPath" routerLinkActive="active" class="menu-item"
             [routerLinkActiveOptions]="{ exact: false }" (click)="sidebarOpen = false">
             <i class="pi pi-history"></i>
             <span>History</span>

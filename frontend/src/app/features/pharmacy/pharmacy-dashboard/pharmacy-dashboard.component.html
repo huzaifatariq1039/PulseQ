@@ -94,5 +94,64 @@
                 </div>
             </div>
         </div>
+
+        <div class="prescriptions-section">
+            <div class="prescriptions-header">
+                <h3>Doctor Prescriptions</h3>
+                <button pButton type="button" class="p-button-sm p-button-text" icon="pi pi-refresh"
+                    label="Refresh" (click)="loadPrescriptionQueue()"></button>
+            </div>
+
+            <div class="prescription-tabs">
+                <button type="button" class="tab-btn" [class.active]="selectedPrescriptionTab === 'pending'"
+                    (click)="setPrescriptionTab('pending')">
+                    Pending ({{ pendingPrescriptions.length }})
+                </button>
+                <button type="button" class="tab-btn" [class.active]="selectedPrescriptionTab === 'completed'"
+                    (click)="setPrescriptionTab('completed')">
+                    Completed ({{ completedPrescriptions.length }})
+                </button>
+            </div>
+
+            <div class="prescriptions-list" *ngIf="!prescriptionsLoading; else loadingPrescriptions">
+                <div class="empty-prescriptions" *ngIf="visiblePrescriptions.length === 0">
+                    No {{ selectedPrescriptionTab }} prescriptions.
+                </div>
+
+                <div class="prescription-card" *ngFor="let p of visiblePrescriptions">
+                    <div class="prescription-top">
+                        <div>
+                            <div class="rx-patient">{{ p.patient_name || 'Patient' }}</div>
+                            <div class="rx-meta">Doctor: {{ p.doctor_name || '—' }} • {{ p.created_at | date:'medium' }}</div>
+                        </div>
+                        <span class="rx-status" [class.completed]="p.dispense_status === 'completed'">
+                            {{ p.dispense_status === 'completed' ? 'Completed' : 'Pending' }}
+                        </span>
+                    </div>
+
+                    <div class="rx-medicines">
+                        <strong>Medicines:</strong> {{ getMedicineNames(p) }}
+                    </div>
+
+                    <div class="rx-notes" *ngIf="p.notes">
+                        <strong>Notes:</strong> {{ p.notes }}
+                    </div>
+
+                    <div class="rx-actions">
+                        <button pButton type="button" class="p-button-sm p-button-success" icon="pi pi-check"
+                            label="Mark Done" *ngIf="p.dispense_status !== 'completed'"
+                            (click)="markPrescriptionStatus(p, 'completed')"></button>
+
+                        <button pButton type="button" class="p-button-sm p-button-secondary" icon="pi pi-history"
+                            label="Mark Pending" *ngIf="p.dispense_status === 'completed'"
+                            (click)="markPrescriptionStatus(p, 'pending')"></button>
+                    </div>
+                </div>
+            </div>
+
+            <ng-template #loadingPrescriptions>
+                <div class="empty-prescriptions">Loading prescriptions...</div>
+            </ng-template>
+        </div>
     </main>
 </div>

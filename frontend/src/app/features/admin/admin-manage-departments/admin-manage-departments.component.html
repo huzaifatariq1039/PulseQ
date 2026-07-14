@@ -41,7 +41,9 @@
                                 (click)="openEditDialog(dept)" title="Edit"></button>
                             <button pButton icon="pi pi-trash"
                                 class="p-button-rounded p-button-text p-button-sm action-btn delete-btn" pRipple
-                                (click)="confirmDeleteDepartment(dept)" title="Delete"></button>
+                                [disabled]="!canDeleteDepartment(dept)"
+                                (click)="confirmDeleteDepartment(dept)" [title]="canDeleteDepartment(dept) ? 'Delete' : 'Doctors assigned'">
+                            </button>
                         </div>
                     </div>
 
@@ -50,6 +52,16 @@
                         <p class="dept-description" *ngIf="dept.description">
                             {{ dept.description }}
                         </p>
+                        <div class="dept-stats">
+                            <div class="stat-item">
+                                <i class="pi pi-user"></i>
+                                <span>{{ getDepartmentDoctorCount(dept) }} Doctor(s)</span>
+                            </div>
+                            <div class="stat-item warning" *ngIf="getDepartmentDoctorCount(dept) > 0">
+                                <i class="pi pi-exclamation-triangle"></i>
+                                <span>Delete blocked until doctors are removed</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>

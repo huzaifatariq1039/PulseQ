@@ -280,6 +280,119 @@
   color: #b91c1c;
 }
 
+/* PRESCRIPTIONS QUEUE */
+.prescriptions-section {
+  margin-top: 1rem;
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.07);
+  padding: 1rem;
+}
+
+.prescriptions-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.prescriptions-header h3 {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #111827;
+}
+
+.prescription-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.tab-btn {
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+  color: #4b5563;
+  border-radius: 999px;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.tab-btn.active {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+}
+
+.prescriptions-list {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.prescription-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 0.75rem;
+  background: #fff;
+}
+
+.prescription-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.rx-patient {
+  font-weight: 700;
+  color: #111827;
+  font-size: 0.9rem;
+}
+
+.rx-meta {
+  color: #6b7280;
+  font-size: 0.76rem;
+  margin-top: 0.1rem;
+}
+
+.rx-status {
+  font-size: 0.74rem;
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fef3c7;
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+  white-space: nowrap;
+}
+
+.rx-status.completed {
+  color: #065f46;
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+}
+
+.rx-medicines,
+.rx-notes {
+  margin-top: 0.45rem;
+  color: #374151;
+  font-size: 0.8rem;
+}
+
+.rx-actions {
+  margin-top: 0.6rem;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.empty-prescriptions {
+  border: 1px dashed #d1d5db;
+  border-radius: 8px;
+  color: #6b7280;
+  font-size: 0.82rem;
+  padding: 0.8rem;
+  text-align: center;
+}
+
 /* ── RESPONSIVE ── */
 @media (max-width: 1024px) {
   .summary-row {

@@ -52,6 +52,11 @@
             <i class="pi pi-truck"></i>
             <span>Distributors</span>
         </a>
+        <a [routerLink]="prescriptionsPath" routerLinkActive="active" class="menu-item"
+            [routerLinkActiveOptions]="{ exact: false }" (click)="sidebarOpen = false">
+            <i class="pi pi-list-check"></i>
+            <span>Prescriptions</span>
+        </a>
         <a [routerLink]="addPath" routerLinkActive="active" class="menu-item"
             [routerLinkActiveOptions]="{ exact: false }" (click)="sidebarOpen = false">
             <i class="pi pi-plus-circle"></i>

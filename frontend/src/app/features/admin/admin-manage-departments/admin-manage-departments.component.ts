@@ -20,6 +20,7 @@ export interface Department {
     name: string;
     description?: string;
     createdAt?: string;
+    doctorCount?: number;
 }
 
 @Component({
@@ -98,7 +99,8 @@ export class AdminManageDepartmentsComponent implements OnInit, OnDestroy {
                                 id: dept,           // using name as temp ID until backend adds UUID
                                 name: dept,
                                 description: '',
-                                createdAt: ''
+                                createdAt: '',
+                                doctorCount: 0
                             };
                         }
                         // Backend returns objects with real IDs: { id, name, description, ... }
@@ -106,7 +108,8 @@ export class AdminManageDepartmentsComponent implements OnInit, OnDestroy {
                             id: dept.id || dept._id || dept.department_id || dept.name || null,
                             name: dept.name || '',
                             description: dept.description || '',
-                            createdAt: dept.created_at || ''
+                            createdAt: dept.created_at || '',
+                            doctorCount: Number(dept.doctor_count || 0)
                         };
                     }).filter((d: Department) => d.name); // only filter by name, not id
 
@@ -253,6 +256,10 @@ export class AdminManageDepartmentsComponent implements OnInit, OnDestroy {
             this.showError('Department ID not found — cannot delete');
             return;
         }
+        if (this.getDepartmentDoctorCount(dept) > 0) {
+            this.showWarn(this.getDepartmentDeleteWarning(dept));
+            return;
+        }
         this.confirmationService.confirm({
             message: `Are you sure you want to delete "${dept.name}"?`,
             header: 'Confirm Delete',
@@ -264,6 +271,10 @@ export class AdminManageDepartmentsComponent implements OnInit, OnDestroy {
     deleteDepartment(dept: Department): void {
         if (!dept.id) {
             this.showError('Department ID not found');
+            return;
+        }
+        if (this.getDepartmentDoctorCount(dept) > 0) {
+            this.showWarn(this.getDepartmentDeleteWarning(dept));
             return;
         }
 
@@ -315,5 +326,20 @@ export class AdminManageDepartmentsComponent implements OnInit, OnDestroy {
 
     private showWarn(detail: string): void {
         this.messageService.add({ severity: 'warn', summary: 'Warning', detail, life: 3000 });
+    }
+
+    getDepartmentDoctorCount(dept: Department): number {
+        return Number(dept.doctorCount || 0);
+    }
+
+    canDeleteDepartment(dept: Department): boolean {
+        return this.getDepartmentDoctorCount(dept) === 0;
+    }
+
+    getDepartmentDeleteWarning(dept: Department): string {
+        const doctorCount = this.getDepartmentDoctorCount(dept);
+        return doctorCount > 0
+            ? `"${dept.name}" has ${doctorCount} doctor(s) assigned. Delete the doctors first or keep the department.`
+            : `"${dept.name}" can be deleted because no doctors are assigned.`;
     }
 }

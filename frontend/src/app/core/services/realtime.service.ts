@@ -132,11 +132,29 @@ export class RealtimeService {
         return;
       }
 
+      let parsed: RealtimeMessage;
       try {
-        state.subject.next(JSON.parse(raw) as RealtimeMessage);
+        parsed = JSON.parse(raw) as RealtimeMessage;
       } catch {
+        // Non-JSON payloads are forwarded as-is.
         state.subject.next({ type: 'message', data: raw });
+        return;
       }
+
+      // Server sends periodic {"type":"ping"} frames (see websocket_endpoint)
+      // purely to keep idle connections alive through load-balancer idle
+      // timeouts (AWS ALB ~60s). Swallow them here so subscribers never treat
+      // a ping as a real update, and reply with a pong so traffic flows both
+      // ways and the connection stays "active" from the client side too.
+      if (parsed.type === 'ping') {
+        this.send(room, { type: 'pong' });
+        return;
+      }
+      if (parsed.type === 'pong') {
+        return;
+      }
+
+      state.subject.next(parsed);
     };
 
     socket.onerror = () => {

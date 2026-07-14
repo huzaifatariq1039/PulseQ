@@ -40,6 +40,33 @@ export interface DispenseMedicineRequest {
   medicines: { product_id: number; quantity: number }[];
 }
 
+export interface PharmacyPrescriptionMedicine {
+  name: string;
+  generic_name?: string;
+  dosage?: string;
+  instructions?: string;
+  in_stock?: boolean;
+  quantity_available?: number;
+}
+
+export interface PharmacyPrescription {
+  id: string;
+  token_id?: string;
+  token_number?: number;
+  doctor_id?: string;
+  doctor_name?: string;
+  department?: string;
+  patient_id?: string;
+  patient_name?: string;
+  hospital_id?: string;
+  medicines: PharmacyPrescriptionMedicine[];
+  notes?: string;
+  dispense_status: 'pending' | 'completed';
+  dispensed_at?: string;
+  dispensed_by?: string;
+  created_at?: string;
+}
+
 @Injectable({
   providedIn: 'root'
 })
@@ -179,6 +206,47 @@ export class PharmacyService {
     return this.http.post(
       `${this.API}/dispense-medicine`,
       data
+    );
+  }
+
+  /**
+   * List prescriptions raised by doctors after consultation.
+   */
+  getPrescriptionQueue(
+    status: 'pending' | 'completed' | 'all' = 'pending',
+    limit: number = 100,
+    filters?: { department?: string; doctorId?: string; search?: string }
+  ): Observable<any> {
+    let params = new HttpParams()
+      .set('status', status)
+      .set('limit', String(limit));
+
+    if (filters?.department?.trim()) {
+      params = params.set('department', filters.department.trim());
+    }
+    if (filters?.doctorId?.trim()) {
+      params = params.set('doctor_id', filters.doctorId.trim());
+    }
+    if (filters?.search?.trim()) {
+      params = params.set('search', filters.search.trim());
+    }
+
+    return this.http.get(
+      `${environment.apiBaseUrl}/staff/pharmacy/prescriptions`,
+      { params }
+    );
+  }
+
+  /**
+   * Mark prescription fulfillment status (pending/completed).
+   */
+  updatePrescriptionStatus(
+    prescriptionId: string,
+    status: 'pending' | 'completed'
+  ): Observable<any> {
+    return this.http.patch(
+      `${environment.apiBaseUrl}/staff/pharmacy/prescriptions/${prescriptionId}/status`,
+      { status }
     );
   }
 

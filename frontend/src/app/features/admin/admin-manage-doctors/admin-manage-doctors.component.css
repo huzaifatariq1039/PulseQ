@@ -260,6 +260,12 @@
     border: 1px solid #fed7aa;
 }
 
+.status-busy {
+    background: #eff6ff;
+    color: #1d4ed8;
+    border: 1px solid #bfdbfe;
+}
+
 /* ─── ACTION BUTTONS ─────────────────────────────────── */
 .action-buttons {
     display: flex;

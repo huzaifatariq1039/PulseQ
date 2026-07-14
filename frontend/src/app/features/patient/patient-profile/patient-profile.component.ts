@@ -45,6 +45,16 @@ export class PatientProfileComponent implements OnInit {
     savingName = false;
     savingEmail = false;
 
+    showCurrentPassword = false;
+    showNewPassword = false;
+    showConfirmPassword = false;
+
+    togglePasswordVisibility(field: 'current' | 'new' | 'confirm'): void {
+        if (field === 'current') this.showCurrentPassword = !this.showCurrentPassword;
+        else if (field === 'new') this.showNewPassword = !this.showNewPassword;
+        else this.showConfirmPassword = !this.showConfirmPassword;
+    }
+
     constructor(
         private fb: FormBuilder,
         private router: Router,
@@ -236,7 +246,14 @@ export class PatientProfileComponent implements OnInit {
 
     openChangePasswordDialog(): void {
         this.changePasswordForm.reset();
+        this.resetPasswordVisibility();
         this.showChangePasswordDialog = true;
+    }
+
+    private resetPasswordVisibility(): void {
+        this.showCurrentPassword = false;
+        this.showNewPassword = false;
+        this.showConfirmPassword = false;
     }
 
     saveChangePassword(): void {
@@ -265,6 +282,7 @@ export class PatientProfileComponent implements OnInit {
     cancelChangePassword(): void {
         this.showChangePasswordDialog = false;
         this.changePasswordForm.reset();
+        this.resetPasswordVisibility();
     }
 
     logout(): void {
