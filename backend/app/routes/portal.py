@@ -949,13 +949,13 @@ async def receptionist_create_walkin_token(
             await send_template_message(
                 phone=_normalize_phone(phone),
                 template_name="token_number",  # ← replace with your actual template name
-                    params=[
-                            doctor.name,                        # {1} doctor_name
-                            patient_name,                       # {2} name  
-                            hospital_name_str,                  # {3} hospital_name
-                            doctor.specialization or "General", # {4} department ✅
-                            str(estimated_wait_time),           # {5} wait_time
-                    ]
+                params=[
+                    doctor.name,                  # {doctor_name}
+                    patient_name,                 # {name}
+                    hospital_name_str,            # {hospital_name}
+                    str(room_number),             # {room_number}
+                    str(estimated_wait_time),     # {wait_time}
+                ]
             )
             logger.info(f"WhatsApp walk-in confirmation sent to {phone} for token {token_id}")
         except Exception as e:
@@ -972,7 +972,7 @@ async def receptionist_create_walkin_token(
             "token_id": token_id,
             "token_number": display_code,
             "hospital_name": hospital_name_str,
-            "department": doctor.specialization,
+            "department": reason,
             "doctor_name": doctor.name,
             "patient_name": patient_name,
             "phone": phone,
@@ -1048,7 +1048,13 @@ async def doctor_skip_token(
             status_code=400,
             detail=f"Token cannot be skipped. Current status: {st}"
         )
-    
+
+    # Remember the patient's number BEFORE any reorder, so we can tell them what
+    # it changed to if the skip moves them to a new spot.
+    old_token_number = token.token_number
+    patient_phone = token.patient_phone
+    patient_name = token.patient_name
+
     now = datetime.utcnow()
     today = now.date()
 
@@ -1118,6 +1124,33 @@ async def doctor_skip_token(
         logger.info(f"Skip message scheduler triggered for token {token_id}")
     except Exception as e:
         logger.error(f"Failed to schedule skip messages for token {token_id}: {e}")
+
+    # If the skip actually changed the patient's token number, notify them so they
+    # know they've been shifted back in the queue.
+    new_token_number = token.token_number
+    if patient_phone and new_token_number != old_token_number:
+        try:
+            ahead = db.query(func.count(Token.id)).filter(
+                Token.doctor_id == token.doctor_id,
+                func.date(Token.appointment_date) == today,
+                Token.status.in_(["pending", "waiting", "confirmed", "called", "in_consultation"]),
+                Token.token_number < new_token_number,
+            ).scalar() or 0
+            wait_minutes = int(ahead) * 5
+            from app.services.whatsapp_service import send_template_message
+            await send_template_message(
+                phone=patient_phone,
+                template_name="user_unavailability",
+                params=[
+                    patient_name or "Patient",
+                    str(old_token_number if old_token_number is not None else ""),
+                    str(new_token_number if new_token_number is not None else ""),
+                    f"{wait_minutes} min",
+                ],
+            )
+            logger.info(f"Token-change WhatsApp sent for token {token_id}: {old_token_number} -> {new_token_number}")
+        except Exception as e:
+            logger.error(f"Failed to send token-change WhatsApp for token {token_id}: {e}")
 
     # Real-time sync: tell the doctor + reception boards the queue changed.
     try:

@@ -103,23 +103,70 @@ class RealTimeConnectionManager:
             logger.error(f"Failed to broadcast to room {room}: {e}")
 
     async def _listen_redis_channel(self, room: str, pubsub: PubSub) -> None:
-        """Background task: listen to Redis channel and relay messages to local connections."""
-        try:
-            async for message in pubsub.listen():
-                if message["type"] == "message":
-                    # Decode JSON and relay to all local WebSocket connections
+        """Background task: listen to Redis channel and relay messages to local connections.
+
+        Hardened against dropped Redis connections (Upstash serverless idle
+        timeout, network blips). If the subscription dies, it auto-resubscribes
+        with backoff instead of silently leaving the room without a listener
+        until a fresh client happens to connect.
+        """
+        channel = f"room:{room}"
+        current_pubsub = pubsub
+        attempt = 0
+
+        while True:
+            try:
+                async for message in current_pubsub.listen():
+                    if message.get("type") == "message":
+                        # Decode JSON and relay to all local WebSocket connections
+                        try:
+                            payload = json.loads(message["data"])
+                            await self._send_to_local_connections(room, payload)
+                        except json.JSONDecodeError as e:
+                            logger.error(f"Invalid JSON from Redis channel {channel}: {e}")
+                        except Exception as e:
+                            logger.error(f"Error relaying message in {channel}: {e}")
+                # A healthy subscription never returns normally, but if it does
+                # (e.g. channel closed), break out and let cleanup happen.
+                break
+
+            except asyncio.CancelledError:
+                # Task cancelled on room cleanup — exit cleanly.
+                raise
+
+            except Exception as e:
+                logger.warning(
+                    f"Redis listener for {channel} dropped (attempt {attempt + 1}): {e}"
+                )
+                attempt += 1
+
+                # Close the dead pubsub if possible, then re-create a fresh
+                # subscription so the room keeps receiving broadcasts.
+                try:
+                    await self.redis_service.close_pubsub(current_pubsub)
+                except Exception:
+                    pass
+
+                try:
+                    new_pubsub = await self.redis_service.subscribe(channel)
+                    # Re-point the manager's tracked pubsub; keeping an entry here
+                    # also prevents a concurrent connect() from spawning a
+                    # duplicate listener while we retry.
+                    self.subscriptions[room] = new_pubsub
+                    current_pubsub = new_pubsub
+                    logger.info(f"Re-subscribed Redis channel {channel} after drop")
+                    attempt = 0
+                except Exception as sub_err:
+                    # Redis still unavailable — back off before retrying so we
+                    # don't hot-loop against an unreachable server.
+                    backoff = min(2 ** attempt, 30)
+                    logger.warning(
+                        f"Redis re-subscribe for {channel} failed, retrying in {backoff}s: {sub_err}"
+                    )
                     try:
-                        payload = json.loads(message["data"])
-                        await self._send_to_local_connections(room, payload)
-                    except json.JSONDecodeError as e:
-                        logger.error(f"Invalid JSON from Redis channel room:{room}: {e}")
-                    except Exception as e:
-                        logger.error(f"Error relaying message in room {room}: {e}")
-        except asyncio.CancelledError:
-            # Task was cancelled (room cleanup)
-            pass
-        except Exception as e:
-            logger.error(f"Redis listener for room {room} failed: {e}")
+                        await asyncio.sleep(backoff)
+                    except asyncio.CancelledError:
+                        raise
 
     async def broadcast(self, room: str, message: dict) -> None:
         """Deliver a message to a room's clients.
@@ -193,11 +240,34 @@ async def websocket_endpoint(websocket: WebSocket, room: str):
 
     Flow:
     1. Accept connection and subscribe to Redis channel
-    2. Listen to WebSocket for incoming messages
-    3. Forward each message to Redis Pub/Sub (distributed)
-    4. Disconnect and unsubscribe when client disconnects
+    2. Run a server-side ping task so idle connections survive load-balancer
+       idle timeouts (AWS ALB ~60s, API Gateway ~10min)
+    3. Listen to WebSocket for incoming messages
+    4. Forward each message to Redis Pub/Sub (distributed)
+    5. Disconnect and unsubscribe when client disconnects
     """
     await manager.connect(room, websocket)
+
+    # Server-initiated pings keep the socket "active" from the server side so
+    # intermediaries (ALB idle timeout, NAT, Upstash) don't kill an idle
+    # connection. Client also replies with a pong (see RealtimeService).
+    PING_INTERVAL_SECONDS = 25
+
+    async def _ping_loop() -> None:
+        try:
+            while True:
+                await asyncio.sleep(PING_INTERVAL_SECONDS)
+                try:
+                    await websocket.send_text(json.dumps({"type": "ping"}))
+                except Exception:
+                    # Socket already gone — let the receive loop handle cleanup.
+                    break
+        except asyncio.CancelledError:
+            # Task cancelled on disconnect; nothing to do.
+            pass
+
+    ping_task = asyncio.create_task(_ping_loop())
+
     try:
         while True:
             # Wait for client message
@@ -209,6 +279,12 @@ async def websocket_endpoint(websocket: WebSocket, room: str):
                 # Enrich with type if not present
                 if "type" not in message:
                     message["type"] = "message"
+
+                # Client ping/pong frames are just keep-alive chatter — don't
+                # relay them to the rest of the room (they already count as
+                # traffic in the client->server direction for idle timeouts).
+                if message.get("type") in ("ping", "pong"):
+                    continue
 
                 # Publish to Redis so all instances can relay
                 await manager.broadcast_via_redis(room, message)
@@ -224,6 +300,13 @@ async def websocket_endpoint(websocket: WebSocket, room: str):
     except Exception as e:
         logger.error(f"WebSocket error in room {room}: {e}")
         manager.disconnect(room, websocket)
+    finally:
+        # Always stop the ping task when the connection ends.
+        ping_task.cancel()
+        try:
+            await ping_task
+        except (asyncio.CancelledError, Exception):
+            pass
 
 
 @router.post("/notify/{room}")

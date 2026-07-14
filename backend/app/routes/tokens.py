@@ -303,7 +303,16 @@ async def cancel_token_logic(
     token.cancelled_at = datetime.utcnow()
     token.updated_at = datetime.utcnow()
     db.commit()
-    
+
+    # Real-time sync: a cancelled token must immediately drop off the reception
+    # board and doctor dashboard, otherwise they keep showing a token the
+    # patient has left until someone manually reloads.
+    try:
+        from app.routes.realtime import notify_queue_update
+        await notify_queue_update(token.hospital_id, token.doctor_id)
+    except Exception:
+        pass
+
     logger.info(f"Token {token_id} cancelled successfully with refund {refund_id}")
 
     try:

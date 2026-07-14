@@ -13,7 +13,8 @@ from app.config import (
     TWILIO_REMINDER_CONFIRM_SID,
     TWILIO_QUEUE_UPDATE_SID,
     TWILIO_TOKEN_NUMBER_SID,
-    TWILIO_OTP_SID
+    TWILIO_OTP_SID,
+    TWILIO_USER_UNAVAILABILITY_SID
 )
 import logging
 import json
@@ -143,6 +144,32 @@ async def send_template_message(phone: str, template_name: str, params: list):
                     f"Hospital: {_template_param(params, 2, 'Hospital')}\n"
                     f"Department: {_template_param(params, 3, 'Department')}\n\n"
                     f"Reply YES to receive live updates.\n\nPulseQ"
+                )
+                return client.messages.create(from_=from_number, to=formatted_phone, body=body).sid
+
+        if template_name == "user_unavailability":
+            if TWILIO_USER_UNAVAILABILITY_SID:
+                message = client.messages.create(
+                    from_=from_number,
+                    to=formatted_phone,
+                    content_sid=TWILIO_USER_UNAVAILABILITY_SID,
+                    content_variables=json.dumps({
+                        "1": _template_param(params, 0, "Patient"),
+                        "2": _template_param(params, 1, ""),
+                        "3": _template_param(params, 2, ""),
+                        "4": _template_param(params, 3, "")
+                    })
+                )
+                return message.sid
+            else:
+                body = (
+                    f"Aapki unavailability ki wajah se aapka token number change kar diya gaya hai. "
+                    f"Aap ab queue mein peeche shift ho gaye hain.\n"
+                    f"Patient: {_template_param(params, 0, 'Patient')}\n"
+                    f"Old Token Number: {_template_param(params, 1, '')}\n"
+                    f"New Token Number: {_template_param(params, 2, '')}\n"
+                    f"Estimated Wait Time: {_template_param(params, 3, '')}\n\n"
+                    f"Jald hospital aayein warna aapka token cancel ho sakta hai."
                 )
                 return client.messages.create(from_=from_number, to=formatted_phone, body=body).sid
 

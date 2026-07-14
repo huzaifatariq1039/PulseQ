@@ -97,6 +97,9 @@ TWILIO_REMINDER_CONFIRM_SID = os.getenv("TWILIO_REMINDER_CONFIRM_SID") # New: Fo
 TWILIO_QUEUE_UPDATE_SID = os.getenv("TWILIO_QUEUE_UPDATE_SID") # New: For "queue_update" template after YES
 TWILIO_TOKEN_NUMBER_SID = os.getenv("TWILIO_TOKEN_NUMBER_SID")
 TWILIO_OTP_SID = os.getenv("TWILIO_OTP_SID")  # ✅ ADD THIS
+# New: For "user_unavailability" template — sent when a patient's token number
+# changes because they were skipped/reordered due to unavailability.
+TWILIO_USER_UNAVAILABILITY_SID = os.getenv("TWILIO_USER_UNAVAILABILITY_SID", "HXec773147dd2e6f8509af687bbde293bf")
 
 # POS System Integration
 POS_SYSTEM_BASE_URL = os.getenv("POS_SYSTEM_BASE_URL", "http://localhost:5000")

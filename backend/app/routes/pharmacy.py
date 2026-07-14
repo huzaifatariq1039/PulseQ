@@ -697,6 +697,16 @@ async def dispense_medicine(
             db.add(sale)
         
         db.commit()
+
+        # Real-time sync: a dispense changes shared pharmacy state (prescription
+        # moves pending -> completed, stock levels drop). Notify all pharmacy
+        # screens in this hospital so a colleague's open board refreshes.
+        try:
+            from app.routes.realtime import notify_queue_update
+            await notify_queue_update(current.hospital_id, None)
+        except Exception:
+            pass
+
         return ok(message="Medicines dispensed successfully")
     except Exception as e:
         db.rollback()
@@ -809,6 +819,15 @@ async def update_prescription_status(
 
     db.commit()
     db.refresh(row)
+
+    # Real-time sync: another pharmacist's open prescription screen (dashboard
+    # or prescriptions list) should refresh when this one is marked pending/
+    # completed — otherwise the pending queue goes stale across pharmacy staff.
+    try:
+        from app.routes.realtime import notify_queue_update
+        await notify_queue_update(current.hospital_id, None)
+    except Exception:
+        pass
 
     return ok(data=row.to_dict(), message=f"Prescription marked as {status_val}")
     

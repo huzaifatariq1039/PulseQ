@@ -525,6 +525,8 @@ async def re_add_skipped_patient(
     new_num = int(max_num) + 1
     prefix = "".join(ch for ch in (token.display_code or "A000") if not ch.isdigit()) or "A"
 
+    old_token_number = token.token_number
+
     token.token_number = new_num
     token.display_code = f"{prefix}{new_num:03d}"
     token.status = "pending"
@@ -545,6 +547,31 @@ async def re_add_skipped_patient(
         await notify_queue_update(token.hospital_id, token.doctor_id)
     except Exception:
         pass
+
+    # Notify the patient that their token number changed (re-added further back).
+    if token.patient_phone and new_num != old_token_number:
+        try:
+            ahead = db.query(func.count(Token.id)).filter(
+                Token.doctor_id == token.doctor_id,
+                func.date(Token.appointment_date) == today,
+                Token.status.in_(["pending", "waiting", "confirmed", "called", "in_consultation"]),
+                Token.token_number < new_num,
+            ).scalar() or 0
+            wait_minutes = int(ahead) * 5
+            from app.services.whatsapp_service import send_template_message
+            await send_template_message(
+                phone=token.patient_phone,
+                template_name="user_unavailability",
+                params=[
+                    token.patient_name or "Patient",
+                    str(old_token_number if old_token_number is not None else ""),
+                    str(new_num),
+                    f"{wait_minutes} min",
+                ],
+            )
+            logger.info(f"Token-change WhatsApp sent for re-added token {token_id}: {old_token_number} -> {new_num}")
+        except Exception as e:
+            logger.error(f"Failed to send token-change WhatsApp for token {token_id}: {e}")
 
     return ok(
         data={
