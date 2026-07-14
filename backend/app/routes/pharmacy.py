@@ -1190,6 +1190,7 @@ async def list_invoice_trash(
 async def get_invoice(
     invoice_id: str,
     db: Session = Depends(get_db),
+    current: TokenData = Depends(get_current_active_user),
 ):
     invoice = PharmacyInvoiceService.get_invoice_by_id(db=db, invoice_id=invoice_id)
     if not invoice:
@@ -1198,6 +1199,25 @@ async def get_invoice(
     data = invoice.to_dict()
     data["items"] = PharmacyInvoiceService.get_invoice_items(db=db, invoice_id=invoice_id)
     data["item_count"] = len(data["items"])
+
+    # Add hospital info dynamically based on the invoice's hospital_id
+    from app.db_models import Hospital
+    hospital_id = data.get("hospital_id") or getattr(current, "hospital_id", None)
+    if hospital_id:
+        hospital = db.query(Hospital).filter(Hospital.id == hospital_id).first()
+        if hospital:
+            data["hospital_name"] = hospital.name
+            data["hospital_address"] = getattr(hospital, "address", None)
+            data["hospital_phone"] = getattr(hospital, "phone", None)
+            data["hospital_email"] = getattr(hospital, "email", None)
+            data["hospital_logo"] = getattr(hospital, "logo_url", None)
+        else:
+            data["hospital_name"] = "Hospital"
+            data["hospital_address"] = None
+            data["hospital_phone"] = None
+            data["hospital_email"] = None
+            data["hospital_logo"] = None
+
     return ok(data=data)
 
 
