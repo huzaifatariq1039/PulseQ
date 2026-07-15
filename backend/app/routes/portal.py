@@ -288,17 +288,30 @@ async def get_completed_consultations(
         if not mrn_val and patient:
             mrn_val = getattr(patient, 'mrn', None)
     
+        # Fetch prescription/medicines for this token
+        medicines = []
+        try:
+            from app.db_models import Prescription
+            prescription = db.query(Prescription).filter(
+                Prescription.token_id == t.id
+            ).first()
+            if prescription and prescription.medicines:
+                medicines = prescription.medicines
+        except Exception:
+            pass
+
         items.append({ 
             "token_number": t.token_number,
             "mrn": mrn_val or "N/A",
             "patient_name": t.patient_name or (patient.name if patient else "Unknown"),
             "doctor_name": getattr(t, 'doctor_name', None) or (doctor_obj.name if doctor_obj else "Unknown"),
             "department": getattr(t, 'department', None) or (doctor_obj.specialization if doctor_obj else "General"),
-            "start_time": start, # Frontend receives valid ISO string instead of null
-            "end_time": end,     # Frontend receives valid ISO string instead of null
+            "start_time": start,
+            "end_time": end,
             "duration": duration,
             "status": str(t.status).lower(),
-            "consultation_notes": getattr(t, 'consultation_notes', ""), 
+            "consultation_notes": getattr(t, 'consultation_notes', ""),
+            "medicines": medicines,
         })
     
     return ok(
@@ -953,7 +966,7 @@ async def receptionist_create_walkin_token(
                     doctor.name,                  # {doctor_name}
                     patient_name,                 # {name}
                     hospital_name_str,            # {hospital_name}
-                    str(room_number),             # {room_number}
+                    doctor.specialization or "General",             # {department}
                     str(estimated_wait_time),     # {wait_time}
                 ]
             )
@@ -972,7 +985,7 @@ async def receptionist_create_walkin_token(
             "token_id": token_id,
             "token_number": display_code,
             "hospital_name": hospital_name_str,
-            "department": reason,
+            "department": doctor.specialization or reason or "General",
             "doctor_name": doctor.name,
             "patient_name": patient_name,
             "phone": phone,

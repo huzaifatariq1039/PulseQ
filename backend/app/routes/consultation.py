@@ -155,20 +155,8 @@ async def consultation_start(
     # Assuming these fields exist in Doctor model
     queue_paused = getattr(doctor, "queue_paused", False) or getattr(doctor, "paused", False)
     
-    if dstatus in {"offline", "on_leave"} or queue_paused:
+    if dstatus in {"offline", "on_leave", "unavailable"} or queue_paused:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Doctor unavailable")
-    if dstatus == "busy":
-        # Only block if the doctor is genuinely mid-consultation with a DIFFERENT
-        # patient. A "busy" flag with no active in-consultation token is a stale
-        # state (e.g. a consultation that was never finished / browser closed) —
-        # recover from it instead of locking the doctor out permanently.
-        active = db.query(Token).filter(
-            Token.doctor_id == doctor_id,
-            func.lower(Token.status) == "in_consultation",
-            Token.id != token_id,
-        ).first()
-        if active:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Doctor busy")
 
     token = db.query(Token).filter(Token.id == token_id).first()
     if not token:
@@ -192,9 +180,6 @@ async def consultation_start(
     for attr in ["start_time", "started_at"]:
         if hasattr(token, attr):
             setattr(token, attr, now)
-    
-    doctor.status = "busy"
-    doctor.updated_at = now
     
     db.commit()
 
@@ -321,14 +306,38 @@ async def consultation_end(
 
     if consultation_notes is not None:
         token.consultation_notes = consultation_notes
+
+    # Save medicines as prescription
+    medicines = (payload or {}).get("medicines", [])
+    if medicines:
+        try:
+            from app.db_models import Prescription
+            existing = db.query(Prescription).filter(
+                Prescription.token_id == token_id
+            ).first()
+            if existing:
+                existing.medicines = medicines
+                existing.notes = consultation_notes
+            else:
+                prescription = Prescription(
+                    id=str(uuid.uuid4()),
+                    token_id=token_id,
+                    doctor_id=doctor_id,
+                    patient_id=token.patient_id,
+                    hospital_id=token.hospital_id,
+                    medicines=medicines,
+                    notes=consultation_notes,
+                    dispense_status="pending",
+                    created_at=now,
+                )
+                db.add(prescription)
+        except Exception as e:
+            logger.warning(f"Failed to save prescription for token {token_id}: {e}")
     
     # Safely set attributes if they exist in the model
     for attr in ["completed_at", "end_time"]:
         if hasattr(token, attr):
             setattr(token, attr, now)
-    
-    doctor.status = "available"
-    doctor.updated_at = now
 
     # Save prescribed medicines (if any) as a Prescription record for this token.
     medicines = (payload or {}).get("medicines")
@@ -603,6 +612,18 @@ async def get_patient_consultation_history(
         if start and end and end > start:
             duration = round((end - start).total_seconds() / 60)
 
+        # Fetch medicines/prescription
+        medicines = []
+        try:
+            from app.db_models import Prescription
+            prescription = db.query(Prescription).filter(
+                Prescription.token_id == t.id
+            ).first()
+            if prescription and prescription.medicines:
+                medicines = prescription.medicines
+        except Exception:
+            pass
+
         items.append({
             "token_id": t.id,
             "token_number": t.display_code or str(t.token_number),
@@ -614,6 +635,7 @@ async def get_patient_consultation_history(
             "doctor_id": t.doctor_id,
             "reason_for_visit": t.reason_for_visit or "",
             "consultation_notes": t.consultation_notes or "",
+            "medicines": medicines,
             "patient_age": t.patient_age,
             "patient_gender": t.patient_gender,
             "payment_status": str(t.payment_status or "pending").lower(),

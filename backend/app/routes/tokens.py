@@ -1112,6 +1112,18 @@ async def get_appointment_details(
     doctor = db.query(Doctor).filter(Doctor.id == token.doctor_id).first()
     hospital = db.query(Hospital).filter(Hospital.id == token.hospital_id).first()
 
+    # Fetch prescription medicines for this token
+    medicines = []
+    try:
+        from app.db_models import Prescription
+        prescription = db.query(Prescription).filter(
+            Prescription.token_id == token_id
+        ).first()
+        if prescription and prescription.medicines:
+            medicines = prescription.medicines
+    except Exception as e:
+        logger.warning(f"Could not fetch prescription for token {token_id}: {e}")
+
     queue = SmartTokenService.get_queue_status(
         token.doctor_id, 
         token.token_number, 
@@ -1129,6 +1141,7 @@ async def get_appointment_details(
         "doctor": {k: v for k, v in doctor.__dict__.items() if not k.startswith('_')} if doctor else {},
         "hospital": {k: v for k, v in hospital.__dict__.items() if not k.startswith('_')} if hospital else {},
         "queue": queue,
+        "medicines": medicines,
         "slip": {
             "token_number": token.display_code or f"A-{token.token_number:03d}",
             "patient_name": token.patient_name or "N/A",

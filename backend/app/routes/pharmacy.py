@@ -381,7 +381,7 @@ async def public_add_medicine(
         existing.expiration_date = exp_dt
         existing.category = payload.category
         existing.sub_category = payload.sub_category
-        existing.manufacture_date = payload.manufacture_date
+        existing.manufacture_date = _normalize_date_str(payload.manufacture_date)
         existing.is_deleted = False # Instantly revive it from the trash
         existing.updated_at = datetime.utcnow()
         
@@ -404,7 +404,7 @@ async def public_add_medicine(
             "stock_unit": existing.stock_unit,
             "quantity": existing.quantity,
             "expiration_date": existing.expiration_date.isoformat() if existing.expiration_date else None,
-            "manufacture_date": payload.manufacture_date,
+            "manufacture_date": _normalize_date_str(payload.manufacture_date),
             "category": existing.category,
             "sub_category": existing.sub_category,
             "hospital_id": existing.hospital_id,
@@ -562,7 +562,10 @@ async def get_all_medicines_staff(
             "quantity": int(r.quantity or 0),
             "low_stock": (r.quantity or 0) < 5,
             "expiration_date": r.expiration_date.isoformat() if r.expiration_date else None,
-            "manufacture_date": r.manufacture_date.isoformat() if r.manufacture_date else None,
+            "manufacture_date": (
+                r.manufacture_date.isoformat() if hasattr(r.manufacture_date, 'isoformat')
+                else str(r.manufacture_date)
+            ) if r.manufacture_date else "",
             "category": r.category, "sub_category": r.sub_category,
             "hospital_id": r.hospital_id,
             "created_at": r.created_at.isoformat() if r.created_at else None,
@@ -640,7 +643,10 @@ async def get_all_medicines(
             "quantity": int(r.quantity or 0),
             "low_stock": (r.quantity or 0) < 5,
             "expiration_date": r.expiration_date.isoformat() if r.expiration_date else None,
-            "manufacture_date": r.manufacture_date.isoformat() if r.manufacture_date else None,
+            "manufacture_date": (
+                r.manufacture_date.isoformat() if hasattr(r.manufacture_date, 'isoformat')
+                else str(r.manufacture_date)
+            ) if r.manufacture_date else "",
             "category": r.category, "sub_category": r.sub_category,
             "hospital_id": r.hospital_id,
             "created_at": r.created_at.isoformat() if r.created_at else None,
@@ -894,6 +900,7 @@ async def add_medicine(
         stock_unit=payload.stock_unit,
         quantity=payload.quantity,
         expiration_date=exp_dt,
+        manufacture_date=_normalize_date_str(payload.manufacture_date),
         category=payload.category,
         sub_category=payload.sub_category,
         hospital_id=current.hospital_id, 
@@ -969,6 +976,10 @@ async def list_items(
             "quantity": int(r.quantity or 0),
             "low_stock": (r.quantity or 0) < 5,
             "expiration_date": r.expiration_date.isoformat() if r.expiration_date else None,
+            "manufacture_date": (
+                    r.manufacture_date.isoformat() if hasattr(r.manufacture_date, 'isoformat')
+                    else str(r.manufacture_date)
+            ) if r.manufacture_date else "",
             "category": r.category, "sub_category": r.sub_category,
             "hospital_id": r.hospital_id,
             "is_deleted": bool(r.is_deleted),

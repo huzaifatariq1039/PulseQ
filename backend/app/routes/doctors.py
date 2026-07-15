@@ -186,7 +186,7 @@ async def update_doctor_status(
     new_status = str((payload or {}).get("status") or "").strip().lower()
     if not doctor_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="doctor_id is required")
-    if new_status not in {"available", "busy", "offline", "on_leave"}:
+    if new_status not in {"available", "offline", "on_leave"}:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="status is invalid")
 
     doctor = db.query(Doctor).filter(Doctor.id == doctor_id).first()
@@ -269,7 +269,7 @@ async def receptionist_manage_doctors(
     for doctor in doctors:
         it = {k: v for k, v in doctor.__dict__.items() if not k.startswith('_')}
         stored_status = str(it.get("status") or "available").lower()
-        effective_status = "busy" if it.get("id") in consulting_doctor_ids else stored_status
+        effective_status = stored_status  # Real status only; busy is no longer a managed state
         start_fmt = _fmt_time_12h(it.get("start_time"))
         end_fmt = _fmt_time_12h(it.get("end_time"))
         timings = f"{start_fmt} - {end_fmt}" if start_fmt and end_fmt else None
@@ -686,7 +686,7 @@ async def list_doctors_public(
             "hospital_id": doctor.hospital_id, "consultation_fee": doctor.consultation_fee,
             "total_fee": round(float(doctor.consultation_fee or 0) + TOKEN_FEE, 2),
             "token_fee": TOKEN_FEE,
-            "session_fee": doctor.session_fee, "status": doctor.status,
+            "session_fee": doctor.session_fee, "status": _patient_facing_status(doctor.status),
             "available_days": doctor.available_days or [], "start_time": doctor.start_time,
             "end_time": doctor.end_time, "avatar_initials": doctor.avatar_initials,
             "rating": doctor.rating, "review_count": doctor.review_count,
@@ -1049,7 +1049,7 @@ async def receptionist_update_doctor(
 
     if "status" in update and update["status"] is not None:
         update["status"] = str(update["status"]).strip().lower()
-        if update["status"] not in {"available", "busy", "offline", "on_leave"}:
+        if update["status"] not in {"available", "offline", "on_leave"}:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="status is invalid")
 
     merged = {k: v for k, v in doctor.__dict__.items() if not k.startswith('_')}
@@ -1181,7 +1181,7 @@ async def get_doctor_details(doctor_id: str, db: Session = Depends(get_db)):
         "id": doctor.id, "name": doctor.name, "specialization": doctor.specialization,
         "subcategory": doctor.subcategory, "hospital_id": doctor.hospital_id,
         "consultation_fee": doctor.consultation_fee, "session_fee": doctor.session_fee,
-        "status": doctor.status, "department": doctor.specialization,
+        "status": _patient_facing_status(doctor.status), "department": doctor.specialization,
         "available_days": doctor.available_days or [], "start_time": doctor.start_time,
         "end_time": doctor.end_time, "avatar_initials": doctor.avatar_initials,
         "rating": doctor.rating, "review_count": doctor.review_count,
@@ -1274,7 +1274,7 @@ async def get_doctor_availability_today(doctor_id: str, db: Session = Depends(ge
     return {
         "doctor_id": doctor_id, "available_today": available_today,
         "today_window": f"{start_time}-{end_time}" if start_time and end_time else None,
-        "status": doctor.status, "available_days": doctor.available_days or [],
+        "status": _patient_facing_status(doctor.status), "available_days": doctor.available_days or [],
     }
 
 
@@ -1301,7 +1301,7 @@ async def get_doctor(doctor_id: str, db: Session = Depends(get_db)):
         id=doctor.id, name=doctor.name, specialization=doctor.specialization,
         subcategory=doctor.subcategory, hospital_id=doctor.hospital_id,
         consultation_fee=doctor.consultation_fee, session_fee=doctor.session_fee,
-        status=doctor.status, available_days=doctor.available_days or [],
+        status=_patient_facing_status(doctor.status), available_days=doctor.available_days or [],
         start_time=doctor.start_time, end_time=doctor.end_time,
         avatar_initials=doctor.avatar_initials, rating=doctor.rating,
         review_count=doctor.review_count,
@@ -1320,9 +1320,16 @@ def _doctor_to_dict(doctor: Doctor) -> Dict[str, Any]:
         "total_fee": round(float(doctor.consultation_fee or 0) + TOKEN_FEE, 2),
         "token_fee": TOKEN_FEE,
         "session_fee": doctor.session_fee,
-        "status": doctor.status, "available_days": doctor.available_days or [],
+        "status": _patient_facing_status(doctor.status), "available_days": doctor.available_days or [],
         "start_time": doctor.start_time, "end_time": doctor.end_time,
         "avatar_initials": doctor.avatar_initials, "rating": doctor.rating,
         "review_count": doctor.review_count, "created_at": doctor.created_at,
         "updated_at": doctor.updated_at,
     }
+
+def _patient_facing_status(status: str) -> str:
+    """Map internal doctor statuses to patient-facing available/unavailable."""
+    s = str(status or "").lower()
+    if s in {"available", "busy", "in_consultation"}:
+        return "available"
+    return "unavailable"  # offline, on_leave, unavailable
