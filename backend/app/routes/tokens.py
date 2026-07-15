@@ -405,13 +405,15 @@ async def get_my_active_token_details(
     current_user = Depends(get_current_active_user)
 ):
     # ✅ Include skipped tokens, exclude only cancelled & completed
+    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     tokens = db.query(Token).filter(
         Token.patient_id == current_user.user_id,
         Token.status.notin_([
             "cancelled", "completed",
-            "TokenStatus.CANCELLED", "TokenStatus.COMPLETED"  # string fallbacks
-        ])
-    ).order_by(Token.created_at.desc()).all()  # ✅ .all() instead of .first()
+            "TokenStatus.CANCELLED", "TokenStatus.COMPLETED"
+        ]),
+        Token.appointment_date >= today_start
+    ).order_by(Token.created_at.desc()).all()
 
     if not tokens:
         raise HTTPException(status_code=404, detail="No active token found")
@@ -460,9 +462,11 @@ async def get_my_active_token(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_active_user)
 ):
+    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     token = db.query(Token).filter(
         Token.patient_id == current_user.user_id,
-        Token.status.notin_(["cancelled", "completed", "skipped", "TokenStatus.CANCELLED", "TokenStatus.COMPLETED", "TokenStatus.SKIPPED"])
+        Token.status.notin_(["cancelled", "completed", "skipped", "TokenStatus.CANCELLED", "TokenStatus.COMPLETED", "TokenStatus.SKIPPED"]),
+        Token.appointment_date >= today_start
     ).order_by(Token.created_at.desc()).first()
 
     if not token:
