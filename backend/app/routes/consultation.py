@@ -307,44 +307,17 @@ async def consultation_end(
     if consultation_notes is not None:
         token.consultation_notes = consultation_notes
 
-    # Save medicines as prescription
-    medicines = (payload or {}).get("medicines", [])
-    if medicines:
-        try:
-            from app.db_models import Prescription
-            existing = db.query(Prescription).filter(
-                Prescription.token_id == token_id
-            ).first()
-            if existing:
-                existing.medicines = medicines
-                existing.notes = consultation_notes
-            else:
-                prescription = Prescription(
-                    id=str(uuid.uuid4()),
-                    token_id=token_id,
-                    doctor_id=doctor_id,
-                    patient_id=token.patient_id,
-                    hospital_id=token.hospital_id,
-                    medicines=medicines,
-                    notes=consultation_notes,
-                    dispense_status="pending",
-                    created_at=now,
-                )
-                db.add(prescription)
-        except Exception as e:
-            logger.warning(f"Failed to save prescription for token {token_id}: {e}")
-    
     # Safely set attributes if they exist in the model
     for attr in ["completed_at", "end_time"]:
         if hasattr(token, attr):
             setattr(token, attr, now)
 
-    # Save prescribed medicines (if any) as a Prescription record for this token.
-    medicines = (payload or {}).get("medicines")
-    if isinstance(medicines, list) and medicines:
+    # Save medicines as prescription (single clean save)
+    medicines_raw = (payload or {}).get("medicines")
+    if isinstance(medicines_raw, list) and medicines_raw:
         try:
             cleaned: List[Dict[str, Any]] = []
-            for m in medicines:
+            for m in medicines_raw:
                 if not isinstance(m, dict):
                     continue
                 name = str(m.get("name") or "").strip()
@@ -352,25 +325,33 @@ async def consultation_end(
                     continue
                 cleaned.append({
                     "name": name,
-                    "generic_name": (m.get("generic_name") or None),
-                    "dosage": (str(m.get("dosage")).strip() or None) if m.get("dosage") else None,
-                    "instructions": (str(m.get("instructions")).strip() or None) if m.get("instructions") else None,
+                    "generic_name": m.get("generic_name") or None,
+                    "dosage": str(m.get("dosage")).strip() if m.get("dosage") else None,
+                    "instructions": str(m.get("instructions")).strip() if m.get("instructions") else None,
                     "in_stock": bool(m.get("in_stock")),
                     "quantity_available": m.get("quantity_available"),
                 })
             if cleaned:
-                db.add(Prescription(
-                    id=str(uuid.uuid4()),
-                    token_id=token.id,
-                    doctor_id=doctor.id,
-                    patient_id=token.patient_id,
-                    hospital_id=token.hospital_id,
-                    medicines=cleaned,
-                    notes=consultation_notes,
-                ))
+                existing = db.query(Prescription).filter(
+                    Prescription.token_id == token_id
+                ).first()
+                if existing:
+                    existing.medicines = cleaned
+                    existing.notes = consultation_notes
+                else:
+                    db.add(Prescription(
+                        id=str(uuid.uuid4()),
+                        token_id=token.id,
+                        doctor_id=doctor.id,
+                        patient_id=token.patient_id,
+                        hospital_id=token.hospital_id,
+                        medicines=cleaned,
+                        notes=consultation_notes,
+                    ))
         except Exception:
-            db.rollback()
             logger.exception("Failed to save prescription for token %s", token_id)
+
+    db.commit()
 
     # Send WhatsApp thank you message after consultation completion
     if token.patient_phone:

@@ -22,6 +22,15 @@ from app.services.go_pos_service import go_pos_service
 from app.services.cache_service import CacheService, cached
 from app.routes.realtime import manager as RealTimeConnectionManager
 
+from reportlab.lib.pagesizes import A4
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import cm
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
+from io import BytesIO
+from app.db_models import Prescription
+
 router = APIRouter()
 public_router = APIRouter()
 
@@ -562,10 +571,7 @@ async def get_all_medicines_staff(
             "quantity": int(r.quantity or 0),
             "low_stock": (r.quantity or 0) < 5,
             "expiration_date": r.expiration_date.isoformat() if r.expiration_date else None,
-            "manufacture_date": (
-                r.manufacture_date.isoformat() if hasattr(r.manufacture_date, 'isoformat')
-                else str(r.manufacture_date)
-            ) if r.manufacture_date else "",
+            "manufacture_date": str(r.manufacture_date) if r.manufacture_date else None,
             "category": r.category, "sub_category": r.sub_category,
             "hospital_id": r.hospital_id,
             "created_at": r.created_at.isoformat() if r.created_at else None,
@@ -643,10 +649,7 @@ async def get_all_medicines(
             "quantity": int(r.quantity or 0),
             "low_stock": (r.quantity or 0) < 5,
             "expiration_date": r.expiration_date.isoformat() if r.expiration_date else None,
-            "manufacture_date": (
-                r.manufacture_date.isoformat() if hasattr(r.manufacture_date, 'isoformat')
-                else str(r.manufacture_date)
-            ) if r.manufacture_date else "",
+            "manufacture_date": str(r.manufacture_date) if r.manufacture_date else None,
             "category": r.category, "sub_category": r.sub_category,
             "hospital_id": r.hospital_id,
             "created_at": r.created_at.isoformat() if r.created_at else None,
@@ -870,14 +873,17 @@ async def add_medicine(
         existing.quantity = payload.quantity
         existing.selling_price = payload.selling_price
         existing.purchase_price = payload.purchase_price
-        existing.expiration_date = payload.expiration_date
+        existing.expiration_date = exp_dt  # ✅ use normalized exp_dt
+        existing.manufacture_date = _normalize_date_str(payload.manufacture_date)  # ✅ fixed
         existing.category = payload.category
         existing.sub_category = payload.sub_category
         existing.type = payload.type
-        existing.distributor = payload.distributor
+        existing.distributor = payload.distributor or payload.supplier_name
+        existing.distributor_company = payload.distributor_company
+        existing.distributor_mobile = payload.distributor_mobile
         existing.stock_unit = payload.stock_unit
         existing.updated_at = datetime.utcnow()
-        existing.is_deleted = False # Auto-revive
+        existing.is_deleted = False
         db.commit()
         db.refresh(existing)
         await _broadcast_inventory_update(current.hospital_id)
@@ -976,10 +982,7 @@ async def list_items(
             "quantity": int(r.quantity or 0),
             "low_stock": (r.quantity or 0) < 5,
             "expiration_date": r.expiration_date.isoformat() if r.expiration_date else None,
-            "manufacture_date": (
-                    r.manufacture_date.isoformat() if hasattr(r.manufacture_date, 'isoformat')
-                    else str(r.manufacture_date)
-            ) if r.manufacture_date else "",
+            "manufacture_date": str(r.manufacture_date) if r.manufacture_date else None,
             "category": r.category, "sub_category": r.sub_category,
             "hospital_id": r.hospital_id,
             "is_deleted": bool(r.is_deleted),
@@ -1738,3 +1741,151 @@ async def update_medicine_public(
     db.refresh(med)
     await _broadcast_inventory_update(getattr(current, "hospital_id", None))
     return ok(message="Medicine updated successfully", data={"id": med.id})
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  PHARMACY PRESCRIPTION REPORT - PDF DOWNLOAD
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/reports/prescriptions/pdf", dependencies=[Depends(require_roles("pharmacy", "admin"))])
+async def download_prescription_report_pdf(
+    db: Session = Depends(get_db),
+    current: TokenData = Depends(get_current_active_user),
+    from_date: Optional[str] = Query(None, description="YYYY-MM-DD"),
+    to_date: Optional[str] = Query(None, description="YYYY-MM-DD"),
+    preset: Optional[str] = Query(None, description="today | this_week | this_month"),
+):
+    h_id = getattr(current, "hospital_id", None)
+
+    # Resolve date range
+    now = datetime.utcnow()
+    if preset == "today":
+        start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        end = now
+        period_label = f"Daily Report — {now.strftime('%d %b %Y')}"
+    elif preset == "this_week":
+        start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+        end = now
+        period_label = f"Weekly Report — {start.strftime('%d %b')} to {now.strftime('%d %b %Y')}"
+    elif preset == "this_month":
+        start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        end = now
+        period_label = f"Monthly Report — {now.strftime('%B %Y')}"
+    elif from_date and to_date:
+        start = datetime.fromisoformat(from_date)
+        end = datetime.fromisoformat(to_date).replace(hour=23, minute=59, second=59)
+        period_label = f"Report — {start.strftime('%d %b %Y')} to {end.strftime('%d %b %Y')}"
+    else:
+        start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        end = now
+        period_label = f"Monthly Report — {now.strftime('%B %Y')}"
+
+    # Fetch prescriptions with patient and doctor info
+    from sqlalchemy import and_
+    prescriptions = db.query(Prescription).filter(
+        Prescription.hospital_id == h_id,
+        Prescription.created_at >= start,
+        Prescription.created_at <= end,
+    ).order_by(Prescription.created_at.desc()).all()
+
+    # Fetch hospital name
+    from app.db_models import Hospital
+    hospital = db.query(Hospital).filter(Hospital.id == h_id).first()
+    hospital_name = hospital.name if hospital else "Hospital"
+
+    # Build PDF
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=1.5*cm,
+        leftMargin=1.5*cm,
+        topMargin=1.5*cm,
+        bottomMargin=1.5*cm
+    )
+
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle('Title', parent=styles['Title'], fontSize=16, spaceAfter=6, alignment=TA_CENTER)
+    subtitle_style = ParagraphStyle('Subtitle', parent=styles['Normal'], fontSize=10, spaceAfter=4, alignment=TA_CENTER, textColor=colors.grey)
+    heading_style = ParagraphStyle('Heading', parent=styles['Normal'], fontSize=11, spaceBefore=12, spaceAfter=4, textColor=colors.HexColor('#1a1a2e'), fontName='Helvetica-Bold')
+    normal_style = ParagraphStyle('Normal2', parent=styles['Normal'], fontSize=9)
+
+    elements = []
+
+    # Header
+    elements.append(Paragraph(hospital_name, title_style))
+    elements.append(Paragraph("Prescription Report", subtitle_style))
+    elements.append(Paragraph(period_label, subtitle_style))
+    elements.append(Paragraph(f"Generated: {now.strftime('%d %b %Y, %I:%M %p')}", subtitle_style))
+    elements.append(Spacer(1, 0.5*cm))
+
+    # Summary
+    elements.append(Paragraph(f"Total Prescriptions: {len(prescriptions)}", heading_style))
+    elements.append(Spacer(1, 0.3*cm))
+
+    if not prescriptions:
+        elements.append(Paragraph("No prescriptions found for the selected period.", normal_style))
+    else:
+        for i, presc in enumerate(prescriptions, 1):
+            # Fetch patient and doctor names
+            from app.db_models import User, Doctor, Token
+            patient = db.query(User).filter(User.id == presc.patient_id).first()
+            doctor = db.query(Doctor).filter(Doctor.id == presc.doctor_id).first()
+            token = db.query(Token).filter(Token.id == presc.token_id).first()
+
+            patient_name = patient.name if patient else "Unknown"
+            doctor_name = doctor.name if doctor else "Unknown"
+            mrn = token.mrn if token else "N/A"
+            date_str = presc.created_at.strftime('%d %b %Y, %I:%M %p') if presc.created_at else "N/A"
+
+            # Patient info block
+            elements.append(Paragraph(
+                f"#{i} — {patient_name} &nbsp;&nbsp; MRN: {mrn} &nbsp;&nbsp; Doctor: {doctor_name} &nbsp;&nbsp; Date: {date_str}",
+                heading_style
+            ))
+
+            # Medicines table
+            medicines = presc.medicines or []
+            if medicines:
+                table_data = [["#", "Medicine", "Generic Name", "Dosage", "Instructions"]]
+                for j, med in enumerate(medicines, 1):
+                    table_data.append([
+                        str(j),
+                        str(med.get("name") or ""),
+                        str(med.get("generic_name") or ""),
+                        str(med.get("dosage") or ""),
+                        str(med.get("instructions") or ""),
+                    ])
+
+                col_widths = [1*cm, 4*cm, 4*cm, 3*cm, 5.5*cm]
+                table = Table(table_data, colWidths=col_widths, repeatRows=1)
+                table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1a1a2e')),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, 0), 9),
+                    ('FONTSIZE', (0, 1), (-1, -1), 8),
+                    ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f5f5f5')]),
+                    ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cccccc')),
+                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                    ('PADDING', (0, 0), (-1, -1), 6),
+                ]))
+                elements.append(table)
+            else:
+                elements.append(Paragraph("No medicines prescribed.", normal_style))
+
+            # Notes
+            if presc.notes:
+                elements.append(Paragraph(f"Notes: {presc.notes}", normal_style))
+
+            elements.append(Spacer(1, 0.4*cm))
+
+    doc.build(elements)
+    buffer.seek(0)
+
+    filename = f"prescription_report_{now.strftime('%Y%m%d')}.pdf"
+    return StreamingResponse(
+        buffer,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )

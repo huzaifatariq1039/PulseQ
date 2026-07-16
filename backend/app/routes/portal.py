@@ -178,6 +178,7 @@ async def get_doctor_tokens(
            "patient_gender": t.patient_gender,
            "patient_phone": getattr(t, 'patient_phone', None),
            "doctor_name": t.doctor_name,
+           "medicines": t.medicines or "",
            "appointment_date": t.appointment_date,
            "status": str(t.status).lower(),
            "mrn": getattr(t, 'mrn', None) or "N/A",
@@ -386,11 +387,32 @@ async def doctor_dashboard(
     active_tokens = [t for t in todays if str(t.status).lower() in ("in_consultation", "pending", "confirmed", "waiting")]
     active_tokens.sort(key=lambda x: x.token_number)
     
+    todays = db.query(Token).filter(
+    Token.doctor_id == target_doctor_id,
+    Token.appointment_date >= today_start_utc,
+    Token.appointment_date < today_end_utc
+    ).all()
+
+    completed_tokens = [t for t in todays if str(t.status).lower() == "completed"]
+    skipped_tokens = [t for t in todays if str(t.status).lower() == "skipped"]
+
+    twelve_hours_ago = now_utc - timedelta(hours=12)
+    active_tokens = [
+       t for t in todays
+       if str(t.status).lower() in ("in_consultation", "pending", "confirmed", "waiting")
+       and not (
+         str(t.status).lower() == "in_consultation"
+         and t.updated_at
+         and t.updated_at.replace(tzinfo=None) < twelve_hours_ago
+        )
+    ]
+    active_tokens.sort(key=lambda x: x.token_number)
+
     current_consult = next((t for t in active_tokens if str(t.status).lower() == "in_consultation"), None)
-    
+
     curr_num = current_consult.token_number if current_consult else 0
     waiting_tokens = [t for t in active_tokens if str(t.status).lower() in ("pending", "confirmed", "waiting") and t.token_number > curr_num]
-
+    
     def _patient_row(t: Token) -> Dict[str, Any]:
         age_display = "N/A"
         if t.patient_age is not None:
