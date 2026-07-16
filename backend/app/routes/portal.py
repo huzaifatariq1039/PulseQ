@@ -6,7 +6,7 @@ from app.models import TokenData
 from app.database import get_db
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, and_
-from app.db_models import User, Doctor, Hospital, Token, ActivityLog, Queue as DBQueue, Department
+from app.db_models import User, Doctor, Hospital, Token, ActivityLog, Queue as DBQueue, Department, Prescription
 from app.utils.responses import ok
 from datetime import datetime, timedelta, timezone, time
 import random
@@ -158,7 +158,15 @@ async def get_doctor_tokens(
     
     tokens = query.order_by(Token.appointment_date.desc()).offset(skip).limit(size).all()
     items = []
-    
+
+    # ✅ Batch-fetch prescriptions for this page of tokens
+    token_ids = [t.id for t in tokens]
+    prescriptions = {
+        p.token_id: p.medicines
+        for p in db.query(Prescription).filter(Prescription.token_id.in_(token_ids)).all()
+        if p.medicines
+    }
+
     for t in tokens:
         # ✅ FIX: Time calculation fallback for standard token list
         start = t.started_at or t.created_at
@@ -178,7 +186,7 @@ async def get_doctor_tokens(
            "patient_gender": t.patient_gender,
            "patient_phone": getattr(t, 'patient_phone', None),
            "doctor_name": t.doctor_name,
-           "medicines": t.medicines or "",
+           "medicines": prescriptions.get(t.id, []),   # ✅ fixed
            "appointment_date": t.appointment_date,
            "status": str(t.status).lower(),
            "mrn": getattr(t, 'mrn', None) or "N/A",
@@ -292,7 +300,6 @@ async def get_completed_consultations(
         # Fetch prescription/medicines for this token
         medicines = []
         try:
-            from app.db_models import Prescription
             prescription = db.query(Prescription).filter(
                 Prescription.token_id == t.id
             ).first()
