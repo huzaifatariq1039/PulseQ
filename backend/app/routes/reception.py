@@ -181,7 +181,7 @@ async def reception_queue(
         Token.hospital_id == hospital_id, 
         func.date(Token.appointment_date) == today,
         # ✅ FIX: Explicitly added "skipped" and "TokenStatus.SKIPPED" so they remain on the receptionist board
-        Token.status.in_(["pending", "in_progress", "waiting", "skipped", "TokenStatus.SKIPPED"])  
+        Token.status.in_(["pending", "in_progress", "waiting", "confirmed", "skipped", "TokenStatus.SKIPPED"]) 
     )
     if doctor_id:
         query = query.filter(Token.doctor_id == doctor_id)
