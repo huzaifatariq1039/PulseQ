@@ -1263,50 +1263,25 @@ async def create_invoice(
     hospital_id = getattr(current, "hospital_id", None)
 
     # ✅ Validate stock availability BEFORE creating the invoice
-    stock_locks = []
-    # ✅ Decrease inventory + record sales when invoice is created
-    try:
-        for item in payload.items:
-            if not item.product_id:
-                continue
+    stock_errors = []
+    for item in payload.items:
+        if not item.product_id:
+            continue
+        med = db.query(PharmacyMedicine).filter(
+            PharmacyMedicine.product_id == item.product_id,
+            PharmacyMedicine.hospital_id == hospital_id,
+            PharmacyMedicine.is_deleted.isnot(True),
+        ).first()
+        if not med:
+            stock_errors.append(f"'{item.product_name}' not found in inventory")
+        elif med.quantity < int(item.quantity or 1):
+            stock_errors.append(f"'{med.name}' has only {med.quantity} units available, requested {int(item.quantity or 1)}")
 
-            med = db.query(PharmacyMedicine).filter(
-                PharmacyMedicine.product_id == item.product_id,
-                PharmacyMedicine.hospital_id == getattr(current, "hospital_id", None),
-                PharmacyMedicine.is_deleted.isnot(True),
-            ).first()
-
-            if not med:
-                # Medicine not in inventory — skip stock deduction but still record sale
-                logger.warning(f"Medicine product_id={item.product_id} not found in inventory")
-            elif med.quantity < int(item.quantity or 1):
-                # Insufficient stock — still create invoice but log warning
-                logger.warning(f"Insufficient stock for {med.name}: has {med.quantity}, needs {item.quantity}")
-            else:
-                # ✅ Deduct stock
-                med.quantity -= int(item.quantity or 1)
-                med.updated_at = datetime.utcnow()
-
-            # Record sale regardless
-            sale = PharmacySale(
-                id=str(uuid.uuid4()),
-                hospital_id=getattr(current, "hospital_id", None),
-                medicine_id=item.product_id,
-                medicine_name=item.product_name,
-                quantity=int(item.quantity or 1),
-                unit_price=float(item.unit_price or 0),
-                total_price=float(item.total or 0),
-                total_amount=float(item.total or 0),
-                payment_status=payload.status or "pending",
-                sold_at=datetime.utcnow(),
-                performed_by=getattr(current, "user_id", None),
-            )
-            db.add(sale)
-
-        db.commit()
-    except Exception as e:
-        logger.warning(f"Failed to record sales/update inventory for invoice {invoice.id}: {e}")
-        db.rollback()
+    if stock_errors:
+        raise HTTPException(
+            status_code=400,
+            detail={"message": "Stock unavailable", "errors": stock_errors}
+        )
 
     invoice = PharmacyInvoiceService.create_invoice(
         db=db,
@@ -1327,41 +1302,42 @@ async def create_invoice(
         items=[item.model_dump() for item in payload.items],
     )
 
-    # ✅ Decrement stock now that the invoice was successfully created
-    for med, qty in stock_locks:
-        med.quantity -= qty
-    if stock_locks:
-        db.commit()
-
-    data = invoice.to_dict()
-    data["items"] = PharmacyInvoiceService.get_invoice_items(db=db, invoice_id=invoice.id)
-    data["item_count"] = len(data["items"])
-
-    # Record each invoice item as a pharmacy sale for analytics
+   # ✅ Deduct stock and record sales AFTER invoice is created successfully
     try:
         for item in payload.items:
+            if not item.product_id:
+                continue
+            med = db.query(PharmacyMedicine).filter(
+                PharmacyMedicine.product_id == item.product_id,
+                PharmacyMedicine.hospital_id == hospital_id,
+                PharmacyMedicine.is_deleted.isnot(True),
+            ).with_for_update().first()
+            if med:
+                med.quantity -= int(item.quantity or 1)
+                med.updated_at = datetime.utcnow()
+
             sale = PharmacySale(
                 id=str(uuid.uuid4()),
-                hospital_id=getattr(current, "hospital_id", None),
+                hospital_id=hospital_id,
                 medicine_id=item.product_id,
                 medicine_name=item.product_name,
                 quantity=int(item.quantity or 1),
                 unit_price=float(item.unit_price or 0),
                 total_price=float(item.total or 0),
                 total_amount=float(item.total or 0),
-                payment_status=payload.status or "paid",
+                payment_status=payload.status or "pending",
                 sold_at=datetime.utcnow(),
                 performed_by=getattr(current, "user_id", None),
             )
             db.add(sale)
         db.commit()
     except Exception as e:
-        logger.warning(f"Failed to record pharmacy sales for invoice {invoice.id}: {e}")
+        logger.error(f"Failed to deduct stock for invoice {invoice.id}: {e}")
         db.rollback()
 
     await _broadcast_inventory_update(hospital_id)
 
-    return ok(data=data, message="Invoice created successfully")
+    return ok(data=invoice, message="Invoice created successfully")
 
 
 # ── PUT /invoices/{invoice_id} ────────────────────────────────────────────────
