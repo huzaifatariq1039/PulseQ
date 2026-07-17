@@ -1245,6 +1245,34 @@ async def create_invoice(
     db: Session = Depends(get_db),
     current: TokenData = Depends(get_current_active_user),
 ):
+    hospital_id = getattr(current, "hospital_id", None)
+
+    # ✅ Validate stock availability BEFORE creating the invoice
+    stock_locks = []
+    for item in payload.items:
+        if item.product_id is None:
+            continue  # skip items without a linked inventory product (custom/manual line items)
+
+        med = db.query(PharmacyMedicine).filter(
+            PharmacyMedicine.product_id == item.product_id,
+            PharmacyMedicine.hospital_id == hospital_id,
+            PharmacyMedicine.is_deleted.isnot(True)
+        ).with_for_update().first()
+
+        if not med:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Medicine '{item.product_name}' is not available in inventory"
+            )
+
+        if med.quantity < item.quantity:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Insufficient stock for '{med.name}'. Available: {med.quantity}, requested: {item.quantity}"
+            )
+
+        stock_locks.append((med, item.quantity))
+
     invoice = PharmacyInvoiceService.create_invoice(
         db=db,
         customer_id=payload.customer_id,
@@ -1259,10 +1287,17 @@ async def create_invoice(
         amount_paid=payload.amount_paid,
         balance_due=payload.balance_due,
         notes=payload.notes,
-        hospital_id=getattr(current, "hospital_id", None),
+        hospital_id=hospital_id,
         created_by=getattr(current, "user_id", None),
         items=[item.model_dump() for item in payload.items],
     )
+
+    # ✅ Decrement stock now that the invoice was successfully created
+    for med, qty in stock_locks:
+        med.quantity -= qty
+    if stock_locks:
+        db.commit()
+
     data = invoice.to_dict()
     data["items"] = PharmacyInvoiceService.get_invoice_items(db=db, invoice_id=invoice.id)
     data["item_count"] = len(data["items"])
@@ -1288,6 +1323,8 @@ async def create_invoice(
     except Exception as e:
         logger.warning(f"Failed to record pharmacy sales for invoice {invoice.id}: {e}")
         db.rollback()
+
+    await _broadcast_inventory_update(hospital_id)
 
     return ok(data=data, message="Invoice created successfully")
 
