@@ -175,7 +175,7 @@ async def reception_queue(
     """Receptionist Queue View from PostgreSQL"""
     hospital_id = current.hospital_id
     if not hospital_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No hospital associated with this account")
+        raise HTTPException(status_code=400, detail="No hospital associated with this account")
     today = datetime.utcnow().date()
     query = db.query(Token).filter(
         Token.hospital_id == hospital_id, 
@@ -278,7 +278,7 @@ async def reception_tokens(
     """Receptionist view of slot bookings from PostgreSQL"""
     hospital_id = current.hospital_id
     if not hospital_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No hospital associated with this account")
+        raise HTTPException(status_code=400, detail="No hospital associated with this account")
     query = db.query(Token).filter(Token.hospital_id == hospital_id)
     if doctor_id:
         query = query.filter(Token.doctor_id == doctor_id)
