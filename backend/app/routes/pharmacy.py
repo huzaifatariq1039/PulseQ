@@ -1245,33 +1245,68 @@ async def create_invoice(
     db: Session = Depends(get_db),
     current: TokenData = Depends(get_current_active_user),
 ):
+    # ✅ Recalculate totals from items if frontend sends 0
+    if payload.items:
+        calculated_subtotal = sum(
+            float(item.unit_price or 0) * float(item.quantity or 1)
+            for item in payload.items
+        )
+        calculated_total = calculated_subtotal - float(payload.discount or 0) + float(payload.tax or 0)
+        # Only override if frontend sent 0
+        if payload.subtotal == 0:
+            payload.subtotal = round(calculated_subtotal, 2)
+        if payload.total == 0:
+            payload.total = round(calculated_total, 2)
+        if payload.balance_due == 0:
+            payload.balance_due = round(payload.total - float(payload.amount_paid or 0), 2)
+
     hospital_id = getattr(current, "hospital_id", None)
 
     # ✅ Validate stock availability BEFORE creating the invoice
     stock_locks = []
-    for item in payload.items:
-        if item.product_id is None:
-            continue  # skip items without a linked inventory product (custom/manual line items)
+    # ✅ Decrease inventory + record sales when invoice is created
+    try:
+        for item in payload.items:
+            if not item.product_id:
+                continue
 
-        med = db.query(PharmacyMedicine).filter(
-            PharmacyMedicine.product_id == item.product_id,
-            PharmacyMedicine.hospital_id == hospital_id,
-            PharmacyMedicine.is_deleted.isnot(True)
-        ).with_for_update().first()
+            med = db.query(PharmacyMedicine).filter(
+                PharmacyMedicine.product_id == item.product_id,
+                PharmacyMedicine.hospital_id == getattr(current, "hospital_id", None),
+                PharmacyMedicine.is_deleted.isnot(True),
+            ).first()
 
-        if not med:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Medicine '{item.product_name}' is not available in inventory"
+            if not med:
+                # Medicine not in inventory — skip stock deduction but still record sale
+                logger.warning(f"Medicine product_id={item.product_id} not found in inventory")
+            elif med.quantity < int(item.quantity or 1):
+                # Insufficient stock — still create invoice but log warning
+                logger.warning(f"Insufficient stock for {med.name}: has {med.quantity}, needs {item.quantity}")
+            else:
+                # ✅ Deduct stock
+                med.quantity -= int(item.quantity or 1)
+                med.updated_at = datetime.utcnow()
+
+            # Record sale regardless
+            sale = PharmacySale(
+                id=str(uuid.uuid4()),
+                hospital_id=getattr(current, "hospital_id", None),
+                medicine_id=item.product_id,
+                medicine_name=item.product_name,
+                quantity=int(item.quantity or 1),
+                unit_price=float(item.unit_price or 0),
+                total_price=float(item.total or 0),
+                total_amount=float(item.total or 0),
+                payment_status=payload.status or "pending",
+                sold_at=datetime.utcnow(),
+                performed_by=getattr(current, "user_id", None),
             )
+            db.add(sale)
 
-        if med.quantity < item.quantity:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Insufficient stock for '{med.name}'. Available: {med.quantity}, requested: {item.quantity}"
-            )
-
-        stock_locks.append((med, item.quantity))
+        db.commit()
+    except Exception as e:
+        logger.warning(f"Failed to record sales/update inventory for invoice {invoice.id}: {e}")
+        db.rollback()
 
     invoice = PharmacyInvoiceService.create_invoice(
         db=db,

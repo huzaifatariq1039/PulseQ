@@ -643,7 +643,6 @@ class PharmacyCredit(Base):
 
 
 class Prescription(Base):
-    """Medicines prescribed by a doctor during a consultation."""
     __tablename__ = "prescriptions"
 
     id = Column(String, primary_key=True, index=True, default=lambda: str(uuid.uuid4()))
@@ -651,9 +650,11 @@ class Prescription(Base):
     doctor_id = Column(String, ForeignKey("doctors.id"), nullable=True, index=True)
     patient_id = Column(String, ForeignKey("users.id"), nullable=True, index=True)
     hospital_id = Column(String, ForeignKey("hospitals.id"), nullable=True, index=True)
-    # List of {name, generic_name, dosage, instructions, in_stock, quantity_available}
     medicines = Column(JSON, default=list)
     notes = Column(Text, nullable=True)
+    dispense_status = Column(String, nullable=True, default="pending")  # ✅ add this
+    dispensed_at = Column(DateTime(timezone=True), nullable=True)        # ✅ add this
+    dispensed_by = Column(String, nullable=True)                         # ✅ add this
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     def to_dict(self) -> dict:
