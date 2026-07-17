@@ -1337,7 +1337,9 @@ async def create_invoice(
 
     await _broadcast_inventory_update(hospital_id)
 
-    return ok(data=invoice, message="Invoice created successfully")
+    invoice_data = invoice.to_dict()
+    invoice_data["items"] = PharmacyInvoiceService.get_invoice_items(db=db, invoice_id=invoice.id)
+    return ok(data=invoice_data, message="Invoice created successfully")
 
 
 # ── PUT /invoices/{invoice_id} ────────────────────────────────────────────────
