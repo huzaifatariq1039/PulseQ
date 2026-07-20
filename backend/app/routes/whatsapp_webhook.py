@@ -13,6 +13,7 @@ from app.config import TWILIO_AUTH_TOKEN
 import logging
 import redis.asyncio as redis
 from app.config import REDIS_URL
+from app.routes.realtime import notify_queue_update
 
 logger = logging.getLogger(__name__)
 
@@ -182,6 +183,11 @@ async def twilio_whatsapp_webhook(
         db.commit()
         logger.info(f"[YES] Token status updated to CONFIRMED: {token.token_number}")
 
+        try:
+            await notify_queue_update(token.hospital_id, token.doctor_id)
+        except Exception as e:
+            logger.error(f"[YES] Failed to broadcast real-time update: {e}")
+
         # Cancel any pending reminder jobs
         try:
             from app.services.app_scheduler import get_scheduler
@@ -251,6 +257,11 @@ async def twilio_whatsapp_webhook(
         token.updated_at   = now
         db.commit()
         logger.info(f"[NO] Token status updated to CANCELLED: {token.token_number}")
+
+        try:
+            await notify_queue_update(token.hospital_id, token.doctor_id)
+        except Exception as e:
+            logger.error(f"[NO] Failed to broadcast real-time update: {e}")
 
         try:
             from app.services.queue_management_service import QueueManagementService

@@ -939,7 +939,7 @@ async def list_items(
         PharmacyMedicine.name, PharmacyMedicine.generic_name, PharmacyMedicine.type,
         PharmacyMedicine.distributor, PharmacyMedicine.purchase_price,
         PharmacyMedicine.selling_price, PharmacyMedicine.stock_unit,
-        PharmacyMedicine.quantity, PharmacyMedicine.expiration_date,
+        PharmacyMedicine.quantity, PharmacyMedicine.expiration_date, PharmacyMedicine.manufacture_date,
         PharmacyMedicine.category, PharmacyMedicine.sub_category,
         PharmacyMedicine.hospital_id, PharmacyMedicine.created_at,
         PharmacyMedicine.updated_at, PharmacyMedicine.is_deleted,
