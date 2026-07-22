@@ -1,3 +1,5 @@
+import re
+
 from fastapi import APIRouter, HTTPException, status, Query, Depends, Header
 from typing import List, Optional, Dict, Any
 from app.models import DoctorCreate, DoctorResponse, DoctorSearchResponse, DoctorWithQueue, QueueStatus
@@ -460,7 +462,7 @@ async def delete_department(
     return ok(message="Department deleted successfully")
 
 
-# FIX 5: Added auth guard — previously anyone could create a doctor
+# Create a new doctor (admin/receptionist only)
 @router.post("/", response_model=DoctorResponse, dependencies=[Depends(require_roles("admin", "receptionist"))])
 async def create_doctor(
     doctor: DoctorCreate,
@@ -611,8 +613,22 @@ async def create_doctor(
         )
     
     doctor_data["user_id"] = user_id
-        
+   
     new_doctor = Doctor(**doctor_data)
+
+    # Generate URL-friendly slug from doctor name
+    clean_name = re.sub(r'^dr\.?\s+', '', new_doctor.name, flags=re.IGNORECASE).strip()
+    base_slug = re.sub(r'[^a-z0-9]+', '-', clean_name.lower()).strip('-')
+
+        # Ensure slug is unique
+    slug = base_slug
+    counter = 1
+    while db.query(Doctor).filter(Doctor.slug == slug).first():
+       slug = f"{base_slug}-{counter}"
+       counter += 1
+
+    new_doctor.slug = slug
+
     db.add(new_doctor)
     db.commit()
     db.refresh(new_doctor)
@@ -1002,6 +1018,96 @@ async def get_doctors_by_main_category(
     )
     return {"doctors": doctors_with_queue, "total_found": len(doctors_with_queue),
             "main_category": main_category, "subcategories": cleaned_subcats}
+
+@public_router.get("/profile/{slug}")
+async def get_doctor_profile(
+    slug: str,
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """Public doctor profile page — accessible via patient.pulseq.health/doctors/{doctor-name}"""
+
+    # Find doctor by slug
+    doctor = db.query(Doctor).filter(
+        Doctor.slug == slug.lower().strip(),
+        Doctor.status != "deleted"
+    ).first()
+
+    if not doctor:
+        raise HTTPException(status_code=404, detail="Doctor not found")
+
+    # Fetch hospital info
+    from app.db_models import Hospital
+    hospital = db.query(Hospital).filter(
+        Hospital.id == doctor.hospital_id
+    ).first()
+
+    # Fetch ratings and reviews
+    from app.db_models import DoctorRating
+    ratings = db.query(DoctorRating).filter(
+        DoctorRating.doctor_id == doctor.id
+    ).order_by(DoctorRating.created_at.desc()).limit(10).all()
+
+    reviews = []
+    for r in ratings:
+        from app.db_models import User
+        patient = db.query(User).filter(User.id == r.patient_id).first()
+        reviews.append({
+            "rating": r.rating,
+            "review": r.review,
+            "patient_name": patient.name if patient else "Anonymous",
+            "date": r.created_at.strftime("%b %d, %Y") if r.created_at else None,
+        })
+
+    # Fetch completed consultations count
+    total_patients = db.query(func.count(Token.id)).filter(
+        Token.doctor_id == doctor.id,
+        Token.status == "completed"
+    ).scalar() or 0
+
+    # Calculate avg wait time
+    avg_wait = db.query(func.avg(
+        func.extract('epoch', Token.started_at) - func.extract('epoch', Token.created_at)
+    )).filter(
+        Token.doctor_id == doctor.id,
+        Token.started_at.isnot(None),
+        Token.status == "completed"
+    ).scalar() or 0
+
+    TOKEN_FEE = 50
+    consultation_fee = float(doctor.consultation_fee or 0)
+    total_fee = round(consultation_fee + TOKEN_FEE, 2)
+
+    return ok(data={
+        "id": doctor.id,
+        "name": doctor.name,
+        "slug": doctor.slug,
+        "specialization": doctor.specialization,
+        "subcategory": doctor.subcategory,
+        "qualifications": getattr(doctor, "qualifications", None),
+        "experience_years": getattr(doctor, "experience_years", 0),
+        "bio": getattr(doctor, "bio", None),
+        "avatar_initials": doctor.avatar_initials,
+        "avatar_url": getattr(doctor, "avatar_url", None),
+        "consultation_fee": consultation_fee,
+        "token_fee": TOKEN_FEE,
+        "total_fee": total_fee,
+        "rating": float(doctor.rating or 0),
+        "review_count": int(doctor.review_count or 0),
+        "status": str(doctor.status or "available").lower(),
+        "available_days": doctor.available_days or [],
+        "start_time": doctor.start_time,
+        "end_time": doctor.end_time,
+        "total_patients_served": total_patients,
+        "avg_wait_minutes": round(avg_wait / 60) if avg_wait else 0,
+        "hospital": {
+            "id": hospital.id if hospital else None,
+            "name": hospital.name if hospital else None,
+            "address": hospital.address if hospital else None,
+            "city": hospital.city if hospital else None,
+            "phone": hospital.phone if hospital else None,
+        } if hospital else None,
+        "reviews": reviews,
+    })
 
 
 # ==================== DYNAMIC /{doctor_id} ROUTES — ALWAYS LAST ====================
