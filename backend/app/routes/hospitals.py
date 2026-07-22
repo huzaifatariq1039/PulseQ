@@ -119,6 +119,16 @@ async def create_hospital(hospital: HospitalCreate, db: Session = Depends(get_db
         updated_at=now,
         **filtered_data,
     )
+
+    # Generate URL-friendly slug from hospital name
+    base_slug = re.sub(r'[^a-z0-9]+', '-', h.name.lower()).strip('-')
+    slug = base_slug
+    counter = 1
+    while db.query(Hospital).filter(Hospital.slug == slug).first():
+        slug = f"{base_slug}-{counter}"
+        counter += 1
+    h.slug = slug
+
     db.add(h)
     db.commit()
     db.refresh(h)

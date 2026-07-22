@@ -129,6 +129,11 @@ class Doctor(Base):
     end_time = Column(String(10), nullable=False)
     avatar_initials = Column(String(10), nullable=True)
     patients_per_day = Column(Integer, default=10)
+    slug = Column(String(200), nullable=True)
+    qualifications = Column(String(500), nullable=True)
+    experience_years = Column(Integer, default=0, nullable=True)
+    bio = Column(Text, nullable=True)
+    avatar_url = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True) # Added index for doctor listing
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
