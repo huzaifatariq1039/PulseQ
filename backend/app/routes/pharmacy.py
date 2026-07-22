@@ -1705,6 +1705,9 @@ class UpdateMedicineRequest(BaseModel):
     sub_category: Optional[str] = None
     type: Optional[str] = None
     distributor: Optional[str] = None
+    supplier_name: Optional[str] = None
+    distributor_company: Optional[str] = None
+    distributor_mobile: Optional[str] = None
     stock_unit: Optional[str] = None
 
 @public_router.delete("/medicines/{medicine_id}")
@@ -1784,6 +1787,13 @@ async def update_medicine_public(
         raise HTTPException(status_code=404, detail="Medicine not found")
 
     update_data = payload.model_dump(exclude_unset=True)
+
+    # supplier_name is a frontend alias for the `distributor` column
+    if "supplier_name" in update_data:
+        supplier_val = update_data.pop("supplier_name")
+        if "distributor" not in update_data or not update_data.get("distributor"):
+            update_data["distributor"] = supplier_val
+
     for field, value in update_data.items():
         setattr(med, field, value)
 
