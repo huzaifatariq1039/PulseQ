@@ -92,6 +92,7 @@ class Hospital(Base):
     state = Column(String(100), nullable=False)
     phone = Column(String(20), nullable=False)
     email = Column(String(255), nullable=True)
+    slug = Column(String(200), nullable=True)
     rating = Column(Float, nullable=True)
     review_count = Column(Integer, default=0)
     status = Column(String(20), default="open", index=True) # Added index for open/closed filtering
