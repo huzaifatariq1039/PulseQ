@@ -247,7 +247,7 @@ class HospitalResponse(HospitalBase):
     # UI contracts for search pages
     is_open: Optional[bool] = None
     is_database: bool = True
-    slug: str
+    slug: Optional[str] = None
     source: str = "db"  # db | database | firestore
     doctors_count: Optional[int] = None
     has_doctors: Optional[bool] = None

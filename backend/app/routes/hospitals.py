@@ -817,6 +817,19 @@ async def get_hospitals_by_radius(
         search_query=f"lat={lat},lng={lng},radius_km={radius_km}"
     )
 
+@router.get("/profile/{slug}", response_model=HospitalResponse)
+async def get_hospital_by_slug(slug: str, db: Session = Depends(get_db)):
+    """Get hospital by slug (used for public profile pages)"""
+    hospital = db.query(Hospital).filter(Hospital.slug == slug).first()
+    if not hospital:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Hospital not found"
+        )
+    h_dict = {k: v for k, v in hospital.__dict__.items() if not k.startswith('_')}
+    h_dict["is_open"] = hospital.status == HospitalStatus.OPEN
+    return HospitalResponse(**h_dict)
+
 @router.get("/{hospital_id}", response_model=HospitalResponse)
 async def get_hospital(hospital_id: str, db: Session = Depends(get_db)):
     """Get hospital by ID"""
