@@ -380,7 +380,8 @@ async def public_add_medicine(
         existing.name = payload.name
         existing.generic_name = payload.generic_name
         existing.type = payload.type
-        existing.distributor = payload.distributor or payload.supplier_name
+        existing.distributor = payload.distributor
+        existing.supplier_name = payload.supplier_name
         existing.distributor_company = payload.distributor_company
         existing.distributor_mobile = payload.distributor_mobile
         existing.purchase_price = payload.purchase_price
@@ -405,7 +406,7 @@ async def public_add_medicine(
             "generic_name": existing.generic_name,
             "type": existing.type,
             "distributor": existing.distributor,
-            "supplier_name": payload.supplier_name or existing.distributor,
+            "supplier_name": existing.supplier_name,
             "distributor_company": payload.distributor_company,
             "distributor_mobile": payload.distributor_mobile,
             "purchase_price": existing.purchase_price,
@@ -425,7 +426,8 @@ async def public_add_medicine(
         name=payload.name,
         generic_name=payload.generic_name,
         type=payload.type,
-        distributor=payload.distributor or payload.supplier_name,
+        distributor=payload.distributor,
+        supplier_name=payload.supplier_name,
         distributor_company=payload.distributor_company,
         distributor_mobile=payload.distributor_mobile,
         purchase_price=payload.purchase_price,
@@ -450,7 +452,7 @@ async def public_add_medicine(
         "generic_name": new_med.generic_name,
         "type": new_med.type,
         "distributor": new_med.distributor,
-        "supplier_name": payload.supplier_name or new_med.distributor,
+        "supplier_name": new_med.supplier_name,
         "distributor_company": payload.distributor_company,
         "distributor_mobile": payload.distributor_mobile,
         "purchase_price": new_med.purchase_price,
@@ -540,7 +542,7 @@ async def get_all_medicines_staff(
     cols = (
         PharmacyMedicine.id, PharmacyMedicine.product_id, PharmacyMedicine.batch_no,
         PharmacyMedicine.name, PharmacyMedicine.generic_name, PharmacyMedicine.type,
-        PharmacyMedicine.distributor, PharmacyMedicine.distributor_company,
+        PharmacyMedicine.distributor, PharmacyMedicine.supplier_name, PharmacyMedicine.distributor_company,
         PharmacyMedicine.distributor_mobile, PharmacyMedicine.purchase_price,
         PharmacyMedicine.selling_price, PharmacyMedicine.stock_unit,
         PharmacyMedicine.quantity, PharmacyMedicine.expiration_date,
@@ -564,6 +566,7 @@ async def get_all_medicines_staff(
             "id": r.id, "product_id": r.product_id, "batch_no": r.batch_no,
             "name": r.name, "generic_name": r.generic_name, "type": r.type,
             "distributor": r.distributor,
+            "supplier_name": r.supplier_name,
             "distributor_company": r.distributor_company,
             "distributor_mobile": r.distributor_mobile,
             "purchase_price": float(r.purchase_price or 0),
@@ -617,7 +620,7 @@ async def get_all_medicines(
     cols = (
         PharmacyMedicine.id, PharmacyMedicine.product_id, PharmacyMedicine.batch_no,
         PharmacyMedicine.name, PharmacyMedicine.generic_name, PharmacyMedicine.type,
-        PharmacyMedicine.distributor, PharmacyMedicine.distributor_company,
+        PharmacyMedicine.distributor, PharmacyMedicine.supplier_name, PharmacyMedicine.distributor_company,
         PharmacyMedicine.distributor_mobile, PharmacyMedicine.purchase_price,
         PharmacyMedicine.selling_price, PharmacyMedicine.stock_unit,
         PharmacyMedicine.quantity, PharmacyMedicine.expiration_date,
@@ -641,7 +644,7 @@ async def get_all_medicines(
             "id": r.id, "product_id": r.product_id, "batch_no": r.batch_no,
             "name": r.name, "generic_name": r.generic_name, "type": r.type,
             "distributor": r.distributor,
-            "supplier_name": r.distributor,
+            "supplier_name": r.supplier_name,
             "distributor_company": r.distributor_company,
             "distributor_mobile": r.distributor_mobile,
             "purchase_price": float(r.purchase_price or 0),
@@ -874,12 +877,13 @@ async def add_medicine(
         existing.quantity = payload.quantity
         existing.selling_price = payload.selling_price
         existing.purchase_price = payload.purchase_price
-        existing.expiration_date = exp_dt  # ✅ use normalized exp_dt
-        existing.manufacture_date = _normalize_date_str(payload.manufacture_date)  # ✅ fixed
+        existing.expiration_date = exp_dt  # use normalized exp_dt
+        existing.manufacture_date = _normalize_date_str(payload.manufacture_date)  # fixed
         existing.category = payload.category
         existing.sub_category = payload.sub_category
         existing.type = payload.type
-        existing.distributor = payload.distributor or payload.supplier_name
+        existing.distributor = payload.distributor
+        existing.supplier_name = payload.supplier_name
         existing.distributor_company = payload.distributor_company
         existing.distributor_mobile = payload.distributor_mobile
         existing.stock_unit = payload.stock_unit
@@ -899,7 +903,8 @@ async def add_medicine(
         name=payload.name,
         generic_name=payload.generic_name,
         type=payload.type,
-        distributor=payload.distributor or payload.supplier_name,
+        distributor=payload.distributor,
+        supplier_name=payload.supplier_name,
         distributor_company=payload.distributor_company,
         distributor_mobile=payload.distributor_mobile,
         purchase_price=payload.purchase_price,
@@ -938,6 +943,7 @@ async def list_items(
         PharmacyMedicine.id, PharmacyMedicine.product_id, PharmacyMedicine.batch_no,
         PharmacyMedicine.name, PharmacyMedicine.generic_name, PharmacyMedicine.type,
         PharmacyMedicine.distributor, PharmacyMedicine.purchase_price,
+        PharmacyMedicine.supplier_name, PharmacyMedicine.distributor_company, PharmacyMedicine.distributor_mobile,  
         PharmacyMedicine.selling_price, PharmacyMedicine.stock_unit,
         PharmacyMedicine.quantity, PharmacyMedicine.expiration_date, PharmacyMedicine.manufacture_date,
         PharmacyMedicine.category, PharmacyMedicine.sub_category,
@@ -977,6 +983,7 @@ async def list_items(
             "id": r.id, "product_id": r.product_id, "batch_no": r.batch_no,
             "name": r.name, "generic_name": r.generic_name, "type": r.type,
             "distributor": r.distributor,
+            "supplier_name": r.supplier_name,
             "purchase_price": float(r.purchase_price or 0),
             "selling_price": float(r.selling_price or 0),
             "stock_unit": r.stock_unit,
@@ -1793,12 +1800,6 @@ async def update_medicine_public(
         raise HTTPException(status_code=404, detail="Medicine not found")
 
     update_data = payload.model_dump(exclude_unset=True)
-
-    # supplier_name is a frontend alias for the `distributor` column
-    if "supplier_name" in update_data:
-        supplier_val = update_data.pop("supplier_name")
-        if "distributor" not in update_data or not update_data.get("distributor"):
-            update_data["distributor"] = supplier_val
 
     for field, value in update_data.items():
         setattr(med, field, value)

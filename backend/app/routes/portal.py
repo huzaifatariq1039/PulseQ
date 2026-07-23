@@ -201,7 +201,7 @@ async def get_doctor_tokens(
     return ok(data=items, meta={"page": page, "page_size": size, "total": total})
 
 
-@router.get("/completed-consultations", dependencies=[Depends(require_roles("doctor", "admin"))])
+@router.get("/completed-consultations", dependencies=[Depends(require_roles("doctor", "admin", "receptionist"))])
 async def get_completed_consultations(
     db: Session = Depends(get_db),
     current: TokenData = Depends(get_current_active_user),

@@ -1,1 +1,1 @@
-# Routes Package 
+"""Route package for PulseQ backend."""
