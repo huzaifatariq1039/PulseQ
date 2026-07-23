@@ -715,12 +715,24 @@ async def receptionist_dashboard(
         if d.id in consulting_doctor_ids:
             status_val = "busy"
         if status_val in ("available", "busy"):
+            doc_tokens = [t for t in todays if t.doctor_id == d.id]
+            doc_waiting = [t for t in doc_tokens if str(t.status).lower() in ("pending", "confirmed", "waiting")]
+            doc_completed = [t for t in doc_tokens if str(t.status).lower() == "completed"]
+            doc_skipped = [t for t in doc_tokens if str(t.status).lower() in ("skipped", "cancelled")]
+            doc_active = [t for t in doc_tokens if str(t.status).lower() in ("in_consultation", "pending", "confirmed", "called", "waiting")]
+
             active_doctors.append({
                 "doctor_id": d.id,
                 "doctor_name": d.name,
                 "department": getattr(d, 'specialization', None) or getattr(d, 'department', None) or "General",
                 "room_number": getattr(d, 'room_number', None) or getattr(d, 'room', None) or "101",
-                "status": status_val
+                "status": status_val,
+                "cards": {
+                   "waiting": len(doc_waiting),
+                   "completed": len(doc_completed),
+                   "skipped": len(doc_skipped),
+                   "avg_wait_minutes": round(_get_avg_service_time(d.id)) if doc_active else 0,
+                }
             })
 
     now_serving_age, now_serving_gender = "N/A", "Unknown"
