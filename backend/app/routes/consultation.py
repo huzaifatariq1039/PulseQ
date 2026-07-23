@@ -438,6 +438,12 @@ async def consultation_skip_token(
 
     logger.info(f"Doctor {current_user.user_id} skipped token {token_id}")
 
+    try:
+        from app.routes.realtime import notify_queue_update
+        await notify_queue_update(token.hospital_id, token.doctor_id)
+    except Exception:
+        pass
+
     # Auto-call next token logic
     doctor_id = token.doctor_id
     today = now.date()

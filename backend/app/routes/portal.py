@@ -769,7 +769,7 @@ async def receptionist_create_walkin_token(
     patient_name = payload.get("patient_name")
     phone = payload.get("phone")
     age = payload.get("age")
-    gender = payload.get("gender")
+    gender = payload.get("gender") or payload.get("patient_gender")
     reason = payload.get("reason")
     payment_status_input = str(payload.get("payment_status") or "unpaid").strip().lower()
     amount_paid = payload.get("amount_paid") or 0
