@@ -257,6 +257,12 @@ async def reception_queue(
            "doctor_name": d.name,
            "specialization": d.specialization,
            "status": d.status,
+           "room_number": getattr(d, "room_number", None) or getattr(d, "room", None),
+           "consultation_fee": getattr(d, "consultation_fee", None),
+           "session_fee": getattr(d, "session_fee", None),
+           "start_time": getattr(d, "start_time", None),
+           "end_time": getattr(d, "end_time", None),
+           "available_days": getattr(d, "available_days", None),
        }
        for d in doctors
 ]

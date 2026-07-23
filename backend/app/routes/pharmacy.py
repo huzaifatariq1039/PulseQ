@@ -1587,12 +1587,15 @@ async def get_top_selling_medicines(
     preset: Optional[str] = Query("last_30_days"),
     from_date: Optional[str] = Query(None),
     to_date: Optional[str] = Query(None),
-    limit: int = Query(10, ge=1, le=50),
+    limit: Optional[int] = Query(None, ge=1, le=1000, description="Omit to return all products"),
+    sort_order: str = Query("desc", description="desc = top selling first, asc = least selling first"),
 ):
     h_id = getattr(current, "hospital_id", None)
     start, end = _resolve_date_range(preset, from_date, to_date)
+    sort_col = func.sum(PharmacySale.quantity)
+    order_clause = sort_col.asc() if sort_order.lower() == "asc" else sort_col.desc()
 
-    rows = db.query(
+    query = db.query(
         PharmacySale.medicine_name,
         func.coalesce(func.sum(PharmacySale.quantity), 0).label("units_sold"),
         func.coalesce(func.sum(
@@ -1611,9 +1614,12 @@ async def get_top_selling_medicines(
         PharmacySale.sold_at <= end,
     ).group_by(
         PharmacySale.medicine_name
-    ).order_by(
-        func.sum(PharmacySale.quantity).desc()
-    ).limit(limit).all()
+    ).order_by(order_clause)
+
+    if limit is not None:
+        query = query.limit(limit)
+
+    rows = query.all()
 
     # Join with PharmacyMedicine to get purchase_price for profit calculation
     result = []

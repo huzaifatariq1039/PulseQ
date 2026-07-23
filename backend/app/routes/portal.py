@@ -771,6 +771,8 @@ async def receptionist_create_walkin_token(
     age = payload.get("age")
     gender = payload.get("gender")
     reason = payload.get("reason")
+    payment_status_input = str(payload.get("payment_status") or "unpaid").strip().lower()
+    amount_paid = payload.get("amount_paid") or 0
     
     if not all([hospital_id, doctor_id, patient_name, phone]):
         raise HTTPException(status_code=400, detail="Missing required fields: hospital, doctor, name, phone")
@@ -956,6 +958,7 @@ async def receptionist_create_walkin_token(
         hex_code=token_id[:8],
         appointment_date=datetime.utcnow(),
         status="pending",
+        payment_status=payment_status_input,  
         patient_name=patient_name,
         patient_phone=phone,
         patient_age=patient_age_int,
@@ -1019,10 +1022,10 @@ async def receptionist_create_walkin_token(
             "patient_name": patient_name,
             "phone": phone,
             "mrn": mrn,
-            "age": age,
-            "gender": gender,
-            "payment": "UNPAID",
-            "status": "PENDING",
+            "age": patient_age_int,
+            "gender": gender or "Unknown",
+            "payment": new_token.payment_status.upper() if new_token.payment_status else "UNPAID",  # ✅ actual value
+            "status": new_token.status.upper() if isinstance(new_token.status, str) else str(new_token.status),  # ✅ actual valu
             "consultation_fee": doc_fee,   # 550 
             "token_fee": token_fee,        # 50 for reference
             "total_fee": doc_fee,          # 550
