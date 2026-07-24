@@ -1263,7 +1263,7 @@ async def receptionist_update_token(
     
     updatable_fields = [
         "patient_name", "patient_phone", "patient_gender",
-        "reason_for_visit", "appointment_date", "department"
+        "reason_for_visit", "appointment_date", "department", "payment_status"
     ]
     
     if "reason" in payload and "reason_for_visit" not in payload:
@@ -1314,6 +1314,7 @@ async def receptionist_update_token(
             "patient_gender": token.patient_gender,
             "patient_phone": token.patient_phone,
             "status": token.status,
+            "payment_status": token.payment_status,
             "updated_fields": updated_fields
         },
         message="Token updated successfully"
