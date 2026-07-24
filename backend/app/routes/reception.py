@@ -243,7 +243,7 @@ async def reception_queue(
            "session_fee": session_fee if inferred_has_session else None,
            "total_fee": total_fee,
            "status": t.status,
-           "payment": "PAID" if t.payment_status == "paid" else "UNPAID",
+           "payment": "PAID" if str(t.payment_status).lower() == "paid" else "UNPAID",
            "payment_method": t.payment_method,
     })
     
