@@ -1036,7 +1036,7 @@ async def receptionist_create_walkin_token(
             "mrn": mrn,
             "age": patient_age_int,
             "gender": gender or "Unknown",
-            "payment": new_token.payment_status.upper() if new_token.payment_status else "UNPAID",  # ✅ actual value
+            "payment": "PAID" if str(new_token.payment_status).lower() == "paid" else "UNPAID",
             "status": new_token.status.upper() if isinstance(new_token.status, str) else str(new_token.status),  # ✅ actual valu
             "consultation_fee": doc_fee,   # 550 
             "token_fee": token_fee,        # 50 for reference
