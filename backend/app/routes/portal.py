@@ -210,18 +210,18 @@ async def get_completed_consultations(
 ):
     """Get completed tokens for the current doctor/admin with statistics."""
     
-    is_admin = getattr(current, "role", "") == "admin"
+    role = str(getattr(current, "role", "")).lower()
     
     # ✅ FIX 1: Strict status filtering to absolutely block "skipped" tokens
     base_filters = [func.lower(Token.status) == "completed"]
 
-    if not is_admin:
+    if role in ("admin", "receptionist"):
+        if getattr(current, "hospital_id", None):
+            base_filters.append(Token.hospital_id == current.hospital_id)
+    else:
         doctor = db.query(Doctor).filter(or_(Doctor.user_id == current.user_id, Doctor.id == current.user_id)).first()
         target_doctor_id = doctor.id if doctor else current.user_id
         base_filters.append(Token.doctor_id == target_doctor_id)
-    else:
-        if getattr(current, "hospital_id", None):
-            base_filters.append(Token.hospital_id == current.hospital_id)
 
     base_query = db.query(Token).filter(*base_filters)
     
